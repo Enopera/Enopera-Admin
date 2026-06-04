@@ -1,0 +1,34 @@
+node_modules
+.next
+out
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts.bak
+.DS_Store
+
+# Bundle di design originale (handoff): non serve in produzione
+_design/
+_design_v2/
+_design_v*/
+
+# Log dev locali
+dev.log
+dev.out.log
+dev.err.log
+
+# Vercel
+.vercel
+
+# Spec OpenAPI di StartyERP (riferimento locale, non committare)
+_starty-spec.json
+
+# Supabase CLI cache locale (linked-project.json, pooler-url, etc.)
+supabase/.temp/
+
+# Script di import one-off (parsano file Excel privati, contengono mapping
+# specifici al singolo cliente). Non committare.
+scripts/
+
+
+.vercel
