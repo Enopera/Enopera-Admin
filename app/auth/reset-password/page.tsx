@@ -42,7 +42,30 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // 2. Caso PKCE (?code=...): proviamo lo scambio.
+      // 2. Caso implicit (#access_token=...&refresh_token=...): flusso
+      //    cross-device da app mobile. Il client @supabase/ssr (default PKCE)
+      //    NON stabilisce la sessione dal fragment in automatico, quindi la
+      //    impostiamo noi esplicitamente con setSession.
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (error) {
+          setErrorMsg(
+            "Link di recupero non valido o scaduto (" + error.message + "). " +
+            "Apri l'app Enopera e richiedi un nuovo link.",
+          );
+          setPhase("expired");
+          return;
+        }
+        setReadyOnce();
+        return;
+      }
+
+      // 3. Caso PKCE (?code=...): proviamo lo scambio.
       //    Funziona solo se il code_verifier è in localStorage di QUESTO browser
       //    (cioè se il reset è partito da un client web sullo stesso device).
       //    Per i flussi cross-device da app mobile usiamo il flusso implicit.
@@ -62,7 +85,7 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // 3. Sottoscrivi auth state change PRIMA di leggere la sessione,
+      // 4. Sottoscrivi auth state change PRIMA di leggere la sessione,
       //    così non ci sfugge un eventuale evento sincrono.
       const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
         if (
@@ -74,8 +97,9 @@ export default function ResetPasswordPage() {
       });
       unsubscribe = () => sub.subscription.unsubscribe();
 
-      // 4. Caso implicit (#access_token=...): il client di Supabase legge il
-      //    fragment in init e stabilisce la sessione. Verifichiamo subito + a 600ms.
+      // (safety net) Se la sessione risultasse gia stabilita altrove, la
+      //    cogliamo qui con getSession (ora + a 600ms). Il caso implicit e
+      //    gestito sopra con setSession esplicito.
       const checkSession = async () => {
         const { data } = await supabase.auth.getSession();
         if (data.session) setReadyOnce();
@@ -83,7 +107,7 @@ export default function ResetPasswordPage() {
       await checkSession();
       t1 = setTimeout(checkSession, 600);
 
-      // 5. Fallback finale: 4s senza segnale → considera scaduto.
+      // 6. Fallback finale: 4s senza segnale → considera scaduto.
       t2 = setTimeout(() => {
         setPhase((cur) => (cur === "loading" ? "expired" : cur));
       }, 4000);
