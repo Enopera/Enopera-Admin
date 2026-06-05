@@ -113,17 +113,19 @@ export function AdmBtn({
 }
 
 // ─── Wordmark ───────────────────────────────────────────────
-export function AdmWordmark({ size = 22 }: { size?: number }) {
+export function AdmWordmark({ size = 22, suffix = "Admin" }: { size?: number; suffix?: string | null }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
       <span style={{
         fontFamily: ADM.serif, fontWeight: 600, fontSize: size,
         color: ADM.ink, letterSpacing: -0.4, lineHeight: 1,
       }}>Enopera</span>
-      <span style={{
-        fontFamily: ADM.sans, fontSize: size * 0.42, color: ADM.inkSoft,
-        textTransform: "uppercase", letterSpacing: 2, fontWeight: 600,
-      }}>Admin</span>
+      {suffix ? (
+        <span style={{
+          fontFamily: ADM.sans, fontSize: size * 0.42, color: ADM.inkSoft,
+          textTransform: "uppercase", letterSpacing: 2, fontWeight: 600,
+        }}>{suffix}</span>
+      ) : null}
     </div>
   );
 }

@@ -152,7 +152,7 @@ export default function ResetPasswordPage() {
       padding: "28px 30px", display: "flex", flexDirection: "column", gap: 18,
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <AdmWordmark size={20} />
+        <AdmWordmark size={20} suffix={null} />
         <span style={{
           fontFamily: ADM.sans, fontSize: 10.5, letterSpacing: 1.6,
           textTransform: "uppercase", color: ADM.inkSoft, fontWeight: 600,
@@ -182,23 +182,19 @@ export default function ResetPasswordPage() {
             Enopera e accedere con la nuova password.
           </p>
 
-          <Field label="NUOVA PASSWORD">
-            <input
-              type="password" autoComplete="new-password" value={pwd}
-              onChange={(e) => setPwd(e.target.value)}
-              placeholder="••••••••" disabled={phase === "saving"}
-              style={inputStyle}
-            />
-          </Field>
-          <Field label="CONFERMA PASSWORD">
-            <input
-              type="password" autoComplete="new-password" value={pwd2}
-              onChange={(e) => setPwd2(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              placeholder="••••••••" disabled={phase === "saving"}
-              style={inputStyle}
-            />
-          </Field>
+          <PasswordField
+            label="NUOVA PASSWORD"
+            value={pwd}
+            onChange={setPwd}
+            disabled={phase === "saving"}
+          />
+          <PasswordField
+            label="CONFERMA PASSWORD"
+            value={pwd2}
+            onChange={setPwd2}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+            disabled={phase === "saving"}
+          />
 
           {errorMsg && (
             <div style={{
@@ -248,6 +244,48 @@ function Status({
         {body}
       </div>
     </div>
+  );
+}
+
+function PasswordField({
+  label, value, onChange, onKeyDown, disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <Field label={label}>
+      <div style={{ position: "relative" }}>
+        <input
+          type={show ? "text" : "password"}
+          autoComplete="new-password"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="••••••••"
+          disabled={disabled}
+          style={{ ...inputStyle, paddingRight: 40 }}
+        />
+        <button
+          type="button"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? "Nascondi password" : "Mostra password"}
+          title={show ? "Nascondi password" : "Mostra password"}
+          style={{
+            position: "absolute", top: 0, right: 0, height: "100%", width: 38,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "none", border: "none", cursor: "pointer",
+            color: ADM.inkMuted, padding: 0,
+          }}
+        >
+          {show ? AdmIcons.eyeOff(16) : AdmIcons.eye(16)}
+        </button>
+      </div>
+    </Field>
   );
 }
 
