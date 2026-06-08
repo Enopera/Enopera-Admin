@@ -714,9 +714,6 @@ function InviteModal({ restaurants, onClose }: { restaurants: RestaurantOption[]
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="es. +39 ..." style={inputStyle} />
               </Field>
-              <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkMuted, marginTop: -6, lineHeight: 1.45 }}>
-                Nome e telefono sono precompilati dal ristorante ma modificabili: la modifica vale solo per questo utente.
-              </div>
             </>
           )}
 
@@ -725,11 +722,6 @@ function InviteModal({ restaurants, onClose }: { restaurants: RestaurantOption[]
               onChange={(e) => setEmail(e.target.value)}
               placeholder="nome@dominio.it" style={inputStyle} />
           </Field>
-          {role === "user" && (
-            <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkMuted, marginTop: -6, lineHeight: 1.45 }}>
-              Precompilata dall&apos;email del ristorante, modificabile. Qui arriverà il link per impostare la password e installare l&apos;app.
-            </div>
-          )}
 
           {role === "admin" && (
             <Field label="Nome completo">
