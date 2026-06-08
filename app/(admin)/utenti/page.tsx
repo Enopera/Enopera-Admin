@@ -22,11 +22,15 @@ export default async function UtentiPage() {
     fetchError = (e as Error).message;
   }
 
-  // Per il dropdown del drawer ci basta {id, name, city}.
+  // Per il dropdown del drawer + il modal invito (email precompilata e riepilogo).
   const restaurantOptions = restaurants.map((r) => ({
     id: r.id,
     name: r.name,
     city: r.city,
+    email: r.email,
+    vat: r.vat,
+    address: r.address,
+    district: r.district,
   }));
 
   return (

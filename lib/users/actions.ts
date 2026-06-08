@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendInviteEmail } from "@/lib/email/send-invite";
 import type { AccountRole, AccountStatus } from "./types";
 
 const USERS_PATH = "/utenti";
@@ -104,41 +105,77 @@ export async function deleteUser(userId: string): Promise<ActionResult> {
 }
 
 // ─── Crea/invita nuovo utente ─────────────────────────────────
+// Nuovo flusso: si collega l'account a un Ristorante esistente (che porta
+// nome/indirizzo/P.IVA/starty_bp_id/ecc. via trigger), e si invia un'email
+// custom (Resend) con link imposta-password + link al test dell'app.
 export async function inviteUser(
   email: string,
   data: {
-    fullName?: string;
-    phone?: string;
     role?: AccountRole;
-    restaurantName?: string;
-    address?: string;
-    vat?: string;
-    startyBpId?: number | null;
-    memberSinceYear?: number | null;
-    city?: string;
-    district?: string;
+    restaurantId?: string | null;
+    restaurantName?: string | null;
+    fullName?: string | null;
   },
 ): Promise<ActionResult> {
   if (!email) return { ok: false, error: "Email mancante" };
 
   const supabase = createAdminClient();
-  const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
-    data: {
-      full_name: data.fullName ?? null,
-      phone: data.phone ?? null,
-      role: data.role ?? "user",
-      status: "invitato",
-      restaurant_name: data.restaurantName ?? null,
-      address: data.address ?? null,
-      vat: data.vat ?? null,
-      starty_bp_id: data.startyBpId ?? null,
-      member_since_year: data.memberSinceYear ?? null,
-      city: data.city ?? null,
-      district: data.district ?? null,
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "";
+  const role = data.role ?? "user";
+
+  if (role === "user" && !data.restaurantId) {
+    return { ok: false, error: "Seleziona un ristorante da collegare all'utente" };
+  }
+
+  // 1. Crea l'utente e ottieni il link "imposta password" SENZA inviare
+  //    l'email di default di Supabase (generateLink non manda email).
+  const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+    type: "invite",
+    email,
+    options: {
+      data: {
+        full_name: data.fullName ?? data.restaurantName ?? null,
+        role,
+        status: "invitato",
+      },
+      redirectTo: `${siteUrl}/auth/set-password`,
     },
   });
-  if (error) return { ok: false, error: error.message };
+  if (linkErr) return { ok: false, error: linkErr.message };
+
+  const userId = linkData.user?.id;
+  const actionLink = linkData.properties?.action_link;
+  if (!userId || !actionLink) {
+    return { ok: false, error: "Utente creato ma link di invito non disponibile" };
+  }
+
+  // 2. Collega il ristorante: il trigger profiles_sync_on_restaurant_link
+  //    copia l'anagrafica (nome, indirizzo, P.IVA, starty_bp_id, citta...) nel profilo.
+  if (role === "user" && data.restaurantId) {
+    const { error: linkRestErr } = await supabase
+      .from("profiles")
+      .update({ restaurant_id: data.restaurantId })
+      .eq("id", userId);
+    if (linkRestErr) {
+      return { ok: false, error: `Utente creato ma collegamento ristorante fallito: ${linkRestErr.message}` };
+    }
+  }
+
+  // 3. Email custom via Resend: dettagli account + link imposta-password + link testing.
+  const mail = await sendInviteEmail({
+    to: email,
+    restaurantName: data.restaurantName ?? null,
+    actionLink,
+  });
 
   revalidatePath(USERS_PATH);
+
+  if (!mail.ok) {
+    return {
+      ok: false,
+      error: `Utente creato ma invio email fallito: ${mail.error}. Puoi reinviare l'accesso con "Invia reset password" dal dettaglio utente.`,
+    };
+  }
+
   return { ok: true, message: `Invito inviato a ${email}` };
 }

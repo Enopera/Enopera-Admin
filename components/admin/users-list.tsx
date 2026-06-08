@@ -18,6 +18,10 @@ export interface RestaurantOption {
   id: string;
   name: string;
   city: string | null;
+  email: string | null;
+  vat: string | null;
+  address: string | null;
+  district: string | null;
 }
 
 type FilterId = "all" | "attivo" | "sospeso" | "invitato" | "admin";
@@ -265,7 +269,7 @@ export function UsersList({
           onClose={() => setOpenId(null)}
         />
       )}
-      {inviteOpen && <InviteModal onClose={() => setInviteOpen(false)} />}
+      {inviteOpen && <InviteModal restaurants={restaurants} onClose={() => setInviteOpen(false)} />}
     </div>
   );
 }
@@ -583,35 +587,42 @@ function UserDrawer({
 }
 
 // ─── Modal invito ─────────────────────────────────────────────
-function InviteModal({ onClose }: { onClose: () => void }) {
+function InviteModal({ restaurants, onClose }: { restaurants: RestaurantOption[]; onClose: () => void }) {
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  const [form, setForm] = useState({
-    email: "", fullName: "", phone: "", role: "user" as "admin" | "user",
-    restaurantName: "", address: "", vat: "", startyBpId: "", memberSinceYear: "",
-    city: "", district: "",
-  });
+  const [role, setRole] = useState<"admin" | "user">("user");
+  const [restaurantId, setRestaurantId] = useState("");
+  const [email, setEmail] = useState("");
+  const [autoEmail, setAutoEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+
+  const selected = restaurants.find((r) => r.id === restaurantId) ?? null;
+
+  const pickRestaurant = (id: string) => {
+    setRestaurantId(id);
+    const r = restaurants.find((x) => x.id === id) ?? null;
+    const prefill = r?.email ?? "";
+    // Precompila l'email dal ristorante, ma non sovrascrivere una modifica manuale.
+    if (email === "" || email === autoEmail) {
+      setEmail(prefill);
+      setAutoEmail(prefill);
+    }
+  };
 
   const submit = () => {
-    if (!form.email) return;
     setFeedback(null);
+    if (!email) { setFeedback({ kind: "err", text: "Inserisci l'email dell'account" }); return; }
+    if (role === "user" && !restaurantId) { setFeedback({ kind: "err", text: "Seleziona un ristorante da collegare" }); return; }
     startTransition(async () => {
-      const parseIntOrNull = (s: string): number | null => {
-        const t = s.trim();
-        if (t === "") return null;
-        const n = Number(t);
-        return Number.isFinite(n) ? n : null;
-      };
-      const res = await inviteUser(form.email, {
-        fullName: form.fullName, phone: form.phone, role: form.role,
-        restaurantName: form.restaurantName, address: form.address, vat: form.vat,
-        startyBpId:      parseIntOrNull(form.startyBpId),
-        memberSinceYear: parseIntOrNull(form.memberSinceYear),
-        city: form.city, district: form.district,
+      const res = await inviteUser(email, {
+        role,
+        restaurantId: role === "user" ? restaurantId : null,
+        restaurantName: selected?.name ?? null,
+        fullName: role === "admin" ? (fullName || null) : null,
       });
       if (res.ok) {
         setFeedback({ kind: "ok", text: res.message ?? "Invito inviato" });
-        setTimeout(onClose, 800);
+        setTimeout(onClose, 1000);
       } else {
         setFeedback({ kind: "err", text: res.error });
       }
@@ -648,72 +659,65 @@ function InviteModal({ onClose }: { onClose: () => void }) {
               border: `1px solid ${feedback.kind === "ok" ? ADM.green : ADM.red}33`,
             }}>{feedback.text}</div>
           )}
-          <Field label="Email *">
-            <input type="email" required value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="nome@dominio.it" style={inputStyle} />
-          </Field>
-          <Field label="Nome completo">
-            <input value={form.fullName}
-              onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-              style={inputStyle} />
-          </Field>
-          <Field label="Telefono">
-            <input value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              style={inputStyle} />
-          </Field>
           <Field label="Ruolo">
-            <select value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value as "admin" | "user" })}
+            <select value={role}
+              onChange={(e) => setRole(e.target.value as "admin" | "user")}
               style={inputStyle}>
-              <option value="user">Utente</option>
+              <option value="user">Utente (ristorante)</option>
               <option value="admin">Admin</option>
             </select>
           </Field>
-          {form.role === "user" && (
+
+          {role === "user" && (
             <>
-              <Field label="Nome ristorante">
-                <input value={form.restaurantName}
-                  onChange={(e) => setForm({ ...form, restaurantName: e.target.value })}
-                  placeholder="es. Osteria del Carmine" style={inputStyle} />
+              <Field label="Ristorante *">
+                <select value={restaurantId}
+                  onChange={(e) => pickRestaurant(e.target.value)}
+                  style={inputStyle}>
+                  <option value="">— Seleziona un ristorante —</option>
+                  {restaurants.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}{r.city ? ` · ${r.city}` : ""}
+                    </option>
+                  ))}
+                </select>
               </Field>
-              <Field label="Indirizzo">
-                <input value={form.address}
-                  onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  style={inputStyle} />
-              </Field>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10 }}>
-                <Field label="Città (eyebrow)">
-                  <input value={form.city}
-                    onChange={(e) => setForm({ ...form, city: e.target.value })}
-                    placeholder="es. Venezia" style={inputStyle} />
-                </Field>
-                <Field label="Zona / via (eyebrow)">
-                  <input value={form.district}
-                    onChange={(e) => setForm({ ...form, district: e.target.value })}
-                    placeholder="es. Calle dei Bottai" style={inputStyle} />
-                </Field>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <Field label="P.IVA">
-                  <input value={form.vat}
-                    onChange={(e) => setForm({ ...form, vat: e.target.value })}
-                    style={inputStyle} />
-                </Field>
-                <Field label="Starty BP ID">
-                  <input type="number" inputMode="numeric" value={form.startyBpId}
-                    onChange={(e) => setForm({ ...form, startyBpId: e.target.value })}
-                    placeholder="es. 12345" style={inputStyle} />
-                </Field>
-              </div>
-              <Field label="Cliente Enopera dal (anno)">
-                <input type="number" inputMode="numeric" min={2000} max={2100}
-                  value={form.memberSinceYear}
-                  onChange={(e) => setForm({ ...form, memberSinceYear: e.target.value })}
-                  placeholder="es. 2023" style={inputStyle} />
-              </Field>
+              {selected && (
+                <div style={{
+                  border: `1px solid ${ADM.line}`, borderRadius: 6, background: ADM.bg,
+                  padding: "12px 14px", display: "grid", gap: 8,
+                }}>
+                  <Row k="Nome" v={selected.name} />
+                  {selected.address && <Row k="Indirizzo" v={selected.address} />}
+                  {(selected.city || selected.district) && (
+                    <Row k="Città / zona" v={[selected.city, selected.district].filter(Boolean).join(" · ")} />
+                  )}
+                  {selected.vat && <Row k="P.IVA" v={selected.vat} />}
+                  <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkMuted, marginTop: 2, lineHeight: 1.45 }}>
+                    Nome, indirizzo, P.IVA, Starty BP ID e anno vengono presi dal ristorante e collegati in automatico.
+                  </div>
+                </div>
+              )}
             </>
+          )}
+
+          <Field label="Email account *">
+            <input type="email" required value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nome@dominio.it" style={inputStyle} />
+          </Field>
+          {role === "user" && (
+            <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkMuted, marginTop: -6, lineHeight: 1.45 }}>
+              Precompilata dall&apos;email del ristorante, modificabile. Qui arriverà il link per impostare la password e installare l&apos;app.
+            </div>
+          )}
+
+          {role === "admin" && (
+            <Field label="Nome completo">
+              <input value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                style={inputStyle} />
+            </Field>
           )}
         </div>
         <div style={{ padding: "14px 22px", borderTop: `1px solid ${ADM.line}`, display: "flex", justifyContent: "flex-end", gap: 8 }}>
