@@ -28,6 +28,7 @@ export default async function UtentiPage() {
     name: r.name,
     city: r.city,
     email: r.email,
+    phone: r.phone,
     vat: r.vat,
     address: r.address,
     district: r.district,

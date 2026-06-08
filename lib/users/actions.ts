@@ -115,6 +115,7 @@ export async function inviteUser(
     restaurantId?: string | null;
     restaurantName?: string | null;
     fullName?: string | null;
+    phone?: string | null;
   },
 ): Promise<ActionResult> {
   if (!email) return { ok: false, error: "Email mancante" };
@@ -158,6 +159,19 @@ export async function inviteUser(
       .eq("id", userId);
     if (linkRestErr) {
       return { ok: false, error: `Utente creato ma collegamento ristorante fallito: ${linkRestErr.message}` };
+    }
+  }
+
+  // 2b. Override campi propri dell'utente (nome, telefono): full_name non e'
+  //     toccato dalla sync ristorante; phone va impostato DOPO il link per
+  //     vincere sulla sync. Modifica solo il profilo, non il ristorante.
+  if (role === "user") {
+    const { error: ovErr } = await supabase
+      .from("profiles")
+      .update({ full_name: data.fullName ?? null, phone: data.phone ?? null })
+      .eq("id", userId);
+    if (ovErr) {
+      return { ok: false, error: `Utente creato ma salvataggio nome/telefono fallito: ${ovErr.message}` };
     }
   }
 

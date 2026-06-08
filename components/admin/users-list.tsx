@@ -19,6 +19,7 @@ export interface RestaurantOption {
   name: string;
   city: string | null;
   email: string | null;
+  phone: string | null;
   vat: string | null;
   address: string | null;
   district: string | null;
@@ -595,18 +596,22 @@ function InviteModal({ restaurants, onClose }: { restaurants: RestaurantOption[]
   const [email, setEmail] = useState("");
   const [autoEmail, setAutoEmail] = useState("");
   const [fullName, setFullName] = useState("");
+  const [autoFullName, setAutoFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [autoPhone, setAutoPhone] = useState("");
 
   const selected = restaurants.find((r) => r.id === restaurantId) ?? null;
 
   const pickRestaurant = (id: string) => {
     setRestaurantId(id);
     const r = restaurants.find((x) => x.id === id) ?? null;
-    const prefill = r?.email ?? "";
-    // Precompila l'email dal ristorante, ma non sovrascrivere una modifica manuale.
-    if (email === "" || email === autoEmail) {
-      setEmail(prefill);
-      setAutoEmail(prefill);
-    }
+    const eMail = r?.email ?? "";
+    const nm = r?.name ?? "";
+    const ph = r?.phone ?? "";
+    // Precompila email/nome/telefono dal ristorante, senza sovrascrivere modifiche manuali.
+    if (email === "" || email === autoEmail) { setEmail(eMail); setAutoEmail(eMail); }
+    if (fullName === "" || fullName === autoFullName) { setFullName(nm); setAutoFullName(nm); }
+    if (phone === "" || phone === autoPhone) { setPhone(ph); setAutoPhone(ph); }
   };
 
   const submit = () => {
@@ -618,7 +623,8 @@ function InviteModal({ restaurants, onClose }: { restaurants: RestaurantOption[]
         role,
         restaurantId: role === "user" ? restaurantId : null,
         restaurantName: selected?.name ?? null,
-        fullName: role === "admin" ? (fullName || null) : null,
+        fullName: fullName || null,
+        phone: role === "user" ? (phone || null) : null,
       });
       if (res.ok) {
         setFeedback({ kind: "ok", text: res.message ?? "Invito inviato" });
@@ -694,10 +700,23 @@ function InviteModal({ restaurants, onClose }: { restaurants: RestaurantOption[]
                   )}
                   {selected.vat && <Row k="P.IVA" v={selected.vat} />}
                   <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkMuted, marginTop: 2, lineHeight: 1.45 }}>
-                    Nome, indirizzo, P.IVA, Starty BP ID e anno vengono presi dal ristorante e collegati in automatico.
+                    Indirizzo, P.IVA, Starty BP ID, città e anno vengono presi dal ristorante e collegati in automatico.
                   </div>
                 </div>
               )}
+              <Field label="Nome">
+                <input value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Nome cliente / referente" style={inputStyle} />
+              </Field>
+              <Field label="Telefono">
+                <input value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="es. +39 ..." style={inputStyle} />
+              </Field>
+              <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkMuted, marginTop: -6, lineHeight: 1.45 }}>
+                Nome e telefono sono precompilati dal ristorante ma modificabili: la modifica vale solo per questo utente.
+              </div>
             </>
           )}
 

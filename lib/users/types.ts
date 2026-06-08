@@ -23,7 +23,8 @@ export interface AdminUser {
   lastSignInAt: string | null;
   // Link al ristorante: FK profiles.restaurant_id. Quando settato, i campi
   // di anagrafica ristorante (restaurantName, address, city, district, vat,
-  // startyBpId, memberSinceYear, phone) sono in sola lettura — vengono
-  // sincronizzati dal trigger DB a partire dalla riga in `restaurants`.
+  // startyBpId, memberSinceYear) sono in sola lettura: vengono sincronizzati
+  // dal trigger DB a partire dalla riga in `restaurants`. full_name e phone
+  // sono invece di proprieta' dell'utente (NON sincronizzati dal ristorante).
   restaurantId: string | null;
 }
