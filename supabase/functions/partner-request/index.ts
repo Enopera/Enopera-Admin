@@ -35,9 +35,13 @@ const json = (data: unknown, status = 200) =>
 
 interface PartnerRequest {
   locale?: string;
+  ragioneSociale?: string;
+  partitaIva?: string;
+  pec?: string;
   tipologia?: string;
   coperti?: string;
   citta?: string;
+  indirizzo?: string;
   referente?: string;
   email?: string;
   telefono?: string;
@@ -69,12 +73,20 @@ Deno.serve(async (req) => {
 
   // Validazione server-side dei campi required (specchio del client).
   const locale = body.locale?.trim() ?? "";
+  const ragioneSociale = body.ragioneSociale?.trim() ?? "";
+  const partitaIva = (body.partitaIva ?? "").replace(/\s/g, "").trim();
+  const pec = body.pec?.trim() ?? "";
   const citta = body.citta?.trim() ?? "";
+  const indirizzo = body.indirizzo?.trim() ?? "";
   const referente = body.referente?.trim() ?? "";
   const email = body.email?.trim() ?? "";
   const missing: string[] = [];
   if (!locale) missing.push("locale");
+  if (!ragioneSociale) missing.push("ragioneSociale");
+  if (!partitaIva) missing.push("partitaIva");
+  if (!pec) missing.push("pec");
   if (!citta) missing.push("citta");
+  if (!indirizzo) missing.push("indirizzo");
   if (!referente) missing.push("referente");
   if (!email) missing.push("email");
   if (missing.length) {
@@ -82,6 +94,12 @@ Deno.serve(async (req) => {
   }
   if (!EMAIL_RE.test(email)) {
     return json({ error: "Email non valida" }, 400);
+  }
+  if (!/^\d{11}$/.test(partitaIva)) {
+    return json({ error: "Partita IVA non valida (11 cifre)" }, 400);
+  }
+  if (!EMAIL_RE.test(pec)) {
+    return json({ error: "PEC non valida" }, 400);
   }
 
   const tipologia = body.tipologia?.trim() || "-";
@@ -109,6 +127,13 @@ Deno.serve(async (req) => {
           ${row("Tipologia", esc(tipologia))}
           ${row("Coperti", esc(coperti))}
           ${row("Citta", esc(citta))}
+          ${row("Indirizzo", esc(indirizzo))}
+        </table>
+        <div style="color:#7a1a2c;font:600 11px/1.4 'Helvetica Neue',Arial,sans-serif;text-transform:uppercase;letter-spacing:1.4px;margin:18px 0 8px;">Dati fiscali</div>
+        <table style="width:100%;border-collapse:collapse;">
+          ${row("Ragione sociale", esc(ragioneSociale))}
+          ${row("Partita IVA", esc(partitaIva))}
+          ${row("PEC", `<a href="mailto:${esc(pec)}" style="color:#7a1a2c;">${esc(pec)}</a>`)}
         </table>
         <div style="color:#7a1a2c;font:600 11px/1.4 'Helvetica Neue',Arial,sans-serif;text-transform:uppercase;letter-spacing:1.4px;margin:18px 0 8px;">Chi e'</div>
         <table style="width:100%;border-collapse:collapse;">
@@ -134,6 +159,12 @@ Deno.serve(async (req) => {
     `Tipologia:   ${tipologia}`,
     `Coperti:     ${coperti}`,
     `Citta:       ${citta}`,
+    `Indirizzo:   ${indirizzo}`,
+    "",
+    "DATI FISCALI",
+    `Ragione sociale: ${ragioneSociale}`,
+    `Partita IVA:     ${partitaIva}`,
+    `PEC:             ${pec}`,
     "",
     "CHI E'",
     `Referente:   ${referente}`,
