@@ -13,6 +13,8 @@ import type {
   UnlinkedUserOption,
 } from "@/lib/restaurants/types";
 import type { PriceListOption } from "@/lib/price-lists/types";
+import type { ShippingConfig } from "@/lib/shipping/types";
+import { updateShippingConfig } from "@/lib/shipping/actions";
 import type {
   AdminCustomerInventoryRow,
   CatalogWineOption,
@@ -40,11 +42,13 @@ export function RestaurantsList({
   unlinkedUsers,
   priceLists,
   catalog,
+  shippingConfig,
 }: {
   restaurants: AdminRestaurant[];
   unlinkedUsers: UnlinkedUserOption[];
   priceLists: PriceListOption[];
   catalog: CatalogWineOption[];
+  shippingConfig: ShippingConfig;
 }) {
   const isMobile = useIsMobile();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -90,6 +94,8 @@ export function RestaurantsList({
           { label: "Con bp Starty",  value: String(stats.withStarty),  sub: "mappati a un BP ERP" },
         ]}
       />
+
+      <ShippingConfigCard config={shippingConfig} isMobile={isMobile} />
 
       {/* Search */}
       <div style={{
@@ -161,11 +167,12 @@ export function RestaurantsList({
           unlinkedUsers={unlinkedUsers}
           priceLists={priceLists}
           catalog={catalog}
+          shippingConfig={shippingConfig}
           onClose={() => setOpenId(null)}
         />
       )}
       {createOpen && (
-        <CreateRestaurantModal onClose={() => setCreateOpen(false)} />
+        <CreateRestaurantModal shippingConfig={shippingConfig} onClose={() => setCreateOpen(false)} />
       )}
     </div>
   );
@@ -306,12 +313,13 @@ function SearchBox({
 // ───────── Drawer (edit) ─────────
 
 function RestaurantModal({
-  restaurant, unlinkedUsers, priceLists, catalog, onClose,
+  restaurant, unlinkedUsers, priceLists, catalog, shippingConfig, onClose,
 }: {
   restaurant: AdminRestaurant;
   unlinkedUsers: UnlinkedUserOption[];
   priceLists: PriceListOption[];
   catalog: CatalogWineOption[];
+  shippingConfig: ShippingConfig;
   onClose: () => void;
 }) {
   const isMobile = useIsMobile();
@@ -332,6 +340,8 @@ function RestaurantModal({
     freeShipping:    restaurant.freeShipping,
     closingDays:     restaurant.closingDays,
     deliverySlots:   restaurant.deliverySlots,
+    shippingFeeNet:  restaurant.shippingFeeNet,
+    freeShippingThresholdGross: restaurant.freeShippingThresholdGross,
   });
   const [addUserId, setAddUserId] = useState("");
 
@@ -480,6 +490,7 @@ function RestaurantModal({
                   </div>
                 </div>
               </label>
+              <ShippingOverrideFields form={form} setForm={setForm} config={shippingConfig} />
             </div>
             <OperativitaFields form={form} setForm={setForm} />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -888,7 +899,7 @@ function PriceListSection({
 
 // ───────── Create modal ─────────
 
-function CreateRestaurantModal({ onClose }: { onClose: () => void }) {
+function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: ShippingConfig; onClose: () => void }) {
   const isMobile = useIsMobile();
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<ActionResult | null>(null);
@@ -906,6 +917,8 @@ function CreateRestaurantModal({ onClose }: { onClose: () => void }) {
     freeShipping: false,
     closingDays: [],
     deliverySlots: [],
+    shippingFeeNet: null,
+    freeShippingThresholdGross: null,
   });
 
   const parseIntOrNull = (s: unknown): number | null => {
@@ -1023,6 +1036,7 @@ function CreateRestaurantModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             </label>
+            <ShippingOverrideFields form={form} setForm={setForm} config={shippingConfig} />
           </div>
           <OperativitaFields form={form} setForm={setForm} />
         </div>
@@ -1232,6 +1246,138 @@ function OperativitaFields({
             />
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────── Spedizione: config globale + override ─────────
+
+function parseFloatOrNull(s: string): number | null {
+  const t = s.trim().replace(",", ".");
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function NumField({
+  label, value, onChange, suffix,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  suffix?: string;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkSoft, fontWeight: 500 }}>
+        {label}
+      </div>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6,
+        border: `1px solid ${ADM.line}`, borderRadius: 6, background: ADM.white,
+        padding: "0 10px", height: 34, width: 160,
+      }}>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode="decimal"
+          style={{
+            flex: 1, border: "none", outline: "none", background: "transparent",
+            fontFamily: ADM.mono, fontSize: 13, color: ADM.ink, minWidth: 0,
+          }}
+        />
+        {suffix && <span style={{ fontFamily: ADM.sans, fontSize: 12, color: ADM.inkSoft }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Banda sotto la KPI strip: i default globali di spedizione (singleton DB).
+function ShippingConfigCard({ config, isMobile }: { config: ShippingConfig; isMobile: boolean }) {
+  const [fee, setFee] = useState(String(config.feeNet));
+  const [threshold, setThreshold] = useState(String(config.freeThresholdGross));
+  const [pending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<ActionResult | null>(null);
+
+  const save = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      const res = await updateShippingConfig(
+        Number(fee.replace(",", ".")),
+        Number(threshold.replace(",", ".")),
+      );
+      setFeedback(res);
+    });
+  };
+
+  return (
+    <div style={{
+      padding: isMobile ? "12px 16px" : "14px 36px",
+      borderBottom: `1px solid ${ADM.line}`,
+      display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end",
+    }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{
+          fontFamily: ADM.sans, fontSize: 10.5, color: ADM.inkSoft,
+          letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 600,
+        }}>
+          Spedizione · default globali
+        </div>
+        <div style={{ fontFamily: ADM.serif, fontSize: 13.5, color: ADM.inkSoft, fontStyle: "italic" }}>
+          Usati per ogni ristorante senza override.
+        </div>
+      </div>
+      <span style={{ flex: 1, minWidth: 12 }} />
+      <NumField label="Costo spedizione (netto)" suffix="€" value={fee} onChange={setFee} />
+      <NumField label="Soglia gratis (lordo vini)" suffix="€" value={threshold} onChange={setThreshold} />
+      <AdmBtn kind="primary" icon={AdmIcons.check(14)} onClick={save}>
+        {pending ? "Salvataggio…" : "Salva"}
+      </AdmBtn>
+      {feedback && (
+        <span style={{
+          fontFamily: ADM.sans, fontSize: 12, fontWeight: 500,
+          color: feedback.ok ? ADM.green : ADM.red,
+        }}>
+          {feedback.ok ? (feedback.message ?? "Salvato") : feedback.error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// Override per-ristorante dentro la sezione "Condizioni commerciali".
+function ShippingOverrideFields({
+  form, setForm, config,
+}: {
+  form: RestaurantInput;
+  setForm: (f: RestaurantInput) => void;
+  config: ShippingConfig;
+}) {
+  const feeStr = form.shippingFeeNet == null ? "" : String(form.shippingFeeNet);
+  const thrStr = form.freeShippingThresholdGross == null ? "" : String(form.freeShippingThresholdGross);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Costo spedizione (override)">
+          <Input
+            value={feeStr}
+            onChange={(v) => setForm({ ...form, shippingFeeNet: parseFloatOrNull(v) })}
+            mono
+            placeholder={`${config.feeNet} € (globale)`}
+          />
+        </Field>
+        <Field label="Soglia gratis (override)">
+          <Input
+            value={thrStr}
+            onChange={(v) => setForm({ ...form, freeShippingThresholdGross: parseFloatOrNull(v) })}
+            mono
+            placeholder={`${config.freeThresholdGross} € (globale)`}
+          />
+        </Field>
+      </div>
+      <div style={{ fontSize: 11, color: ADM.inkSoft, marginTop: 2, lineHeight: 1.4, fontFamily: ADM.sans }}>
+        Lascia vuoto per usare i valori globali. L&apos;override vale solo per questo ristorante.
       </div>
     </div>
   );

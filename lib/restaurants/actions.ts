@@ -24,6 +24,8 @@ export interface RestaurantInput {
   freeShipping: boolean;
   closingDays: number[];
   deliverySlots: DeliverySlot[];
+  shippingFeeNet?: number | null;
+  freeShippingThresholdGross?: number | null;
 }
 
 function toRow(data: RestaurantInput): Record<string, unknown> {
@@ -44,6 +46,12 @@ function toRow(data: RestaurantInput): Record<string, unknown> {
     .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
   row.delivery_slots    = (data.deliverySlots ?? [])
     .filter((s) => s === "morning" || s === "afternoon");
+  // Override spedizione: NULL = eredita dal globale. Valori negativi scartati.
+  const fee = data.shippingFeeNet;
+  row.shipping_fee_net = (typeof fee === "number" && Number.isFinite(fee) && fee >= 0) ? fee : null;
+  const thr = data.freeShippingThresholdGross;
+  row.free_shipping_threshold_gross =
+    (typeof thr === "number" && Number.isFinite(thr) && thr >= 0) ? thr : null;
   return row;
 }
 

@@ -66,6 +66,9 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
                        .filter((d) => d >= 1 && d <= 7),
     deliverySlots:   ((r.delivery_slots   as string[] | null) ?? [])
                        .filter((s): s is DeliverySlot => s === "morning" || s === "afternoon"),
+    shippingFeeNet:  r.shipping_fee_net == null ? null : Number(r.shipping_fee_net),
+    freeShippingThresholdGross:
+                     r.free_shipping_threshold_gross == null ? null : Number(r.free_shipping_threshold_gross),
     priceListId:     (r.price_list_id     as string) ?? null,
     priceListName:   r.price_list_id ? (priceListNameById.get(r.price_list_id as string) ?? null) : null,
     createdAt: r.created_at as string,

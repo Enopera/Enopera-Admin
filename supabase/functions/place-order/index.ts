@@ -241,7 +241,15 @@ Deno.serve(async (req) => {
   }
   const wineById = wineByAnyId; // alias per minimizzare cambi sotto
 
-  // Calcola totali (snapshot)
+  // Calcola totali (snapshot).
+  // NOTA (Feature 3 - spedizione configurabile, parte server DA FARE): qui
+  // `total` e' SOLO il netto vini (price*qty). La spedizione (shipping_config
+  // globale + override per ristorante) e' per ora calcolata e mostrata solo
+  // lato app (order_pricing.dart + shipping_config_service): NON viene
+  // addebitata in questo total ne' aggiunta come riga all'ordine Starty.
+  // Per fatturarla davvero: leggere shipping_config + gli override del
+  // ristorante, applicare la stessa logica (soglia sul lordo vini) e
+  // sommarla a `total` + aggiungere una riga spedizione all'orderIn Starty.
   let total = 0;
   let itemsCount = 0;
   for (const line of body.lines) {

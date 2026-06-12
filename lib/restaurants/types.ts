@@ -20,6 +20,10 @@ export interface AdminRestaurant {
   closingDays: number[];
   /// Fasce di consegna offerte. Vuoto = non specificato.
   deliverySlots: DeliverySlot[];
+  /// Override costo spedizione netto per il ristorante. NULL = usa il globale.
+  shippingFeeNet: number | null;
+  /// Override soglia gratis (lordo vini). NULL = usa il globale.
+  freeShippingThresholdGross: number | null;
   /// Listino custom assegnato (null = usa il default).
   priceListId: string | null;
   /// Nome del listino assegnato — joinato per UI. Null se priceListId è null.

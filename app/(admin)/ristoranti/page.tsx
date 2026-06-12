@@ -4,6 +4,8 @@ import { PAGE_LABELS } from "@/components/admin/nav";
 import { listRestaurants, listUnlinkedUsers } from "@/lib/restaurants/queries";
 import { listPriceListOptions } from "@/lib/price-lists/queries";
 import { listCatalogWines } from "@/lib/customer-inventory/queries";
+import { getShippingConfig } from "@/lib/shipping/queries";
+import { SHIPPING_FALLBACK } from "@/lib/shipping/types";
 import { RestaurantsList } from "@/components/admin/restaurants-list";
 
 export const dynamic = "force-dynamic";
@@ -15,13 +17,15 @@ export default async function RistorantiPage() {
   let unlinkedUsers: Awaited<ReturnType<typeof listUnlinkedUsers>> = [];
   let priceLists: Awaited<ReturnType<typeof listPriceListOptions>> = [];
   let catalog: Awaited<ReturnType<typeof listCatalogWines>> = [];
+  let shippingConfig = SHIPPING_FALLBACK;
   let fetchError: string | null = null;
   try {
-    [restaurants, unlinkedUsers, priceLists, catalog] = await Promise.all([
+    [restaurants, unlinkedUsers, priceLists, catalog, shippingConfig] = await Promise.all([
       listRestaurants(),
       listUnlinkedUsers(),
       listPriceListOptions(),
       listCatalogWines(),
+      getShippingConfig(),
     ]);
   } catch (e) {
     fetchError = (e as Error).message;
@@ -44,6 +48,7 @@ export default async function RistorantiPage() {
           unlinkedUsers={unlinkedUsers}
           priceLists={priceLists}
           catalog={catalog}
+          shippingConfig={shippingConfig}
         />
       )}
     </AdmShell>
