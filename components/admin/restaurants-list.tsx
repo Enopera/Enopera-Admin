@@ -525,10 +525,9 @@ function RestaurantModal({
             run={run}
           />
 
-          {/* Cantina (distribuzione + conto vendita) */}
+          {/* Cantina (distribuzione + conto vendita) - condivisa per ristorante */}
           <CantinaSection
             restaurantId={restaurant.id}
-            hasUsers={restaurant.users.length > 0}
             catalog={catalog}
           />
 
@@ -627,31 +626,21 @@ function RestaurantModal({
 // ───────── Cantina section ─────────
 
 function CantinaSection({
-  restaurantId, hasUsers, catalog,
+  restaurantId, catalog,
 }: {
   restaurantId: string;
-  hasUsers: boolean;
   catalog: CatalogWineOption[];
 }) {
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<{
-    primaryUserId: string;
-    primaryUserEmail: string | null;
-    totalUsers: number;
-    inventory: AdminCustomerInventoryRow[];
-  } | null>(null);
+  const [data, setData] = useState<AdminCustomerInventoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<ActionResult | null>(null);
 
   const refresh = async () => {
-    if (!hasUsers) {
-      setLoading(false);
-      return;
-    }
     try {
-      const r = await loadRestaurantInventory(restaurantId);
-      setData(r);
+      const rows = await loadRestaurantInventory(restaurantId);
+      setData(rows);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -665,18 +654,18 @@ function CantinaSection({
   }, [restaurantId]);
 
   const distribuzione = useMemo(
-    () => (data?.inventory ?? []).filter((r) => r.channel === "distribuzione")
+    () => (data ?? []).filter((r) => r.channel === "distribuzione")
       .sort((a, b) => a.wineName.localeCompare(b.wineName)),
     [data],
   );
   const contoVendita = useMemo(
-    () => (data?.inventory ?? []).filter((r) => r.channel === "contoVendita")
+    () => (data ?? []).filter((r) => r.channel === "contoVendita")
       .sort((a, b) => a.wineName.localeCompare(b.wineName)),
     [data],
   );
 
   const inventoryWineIds = useMemo(
-    () => new Set((data?.inventory ?? []).map((r) => r.wineId)),
+    () => new Set((data ?? []).map((r) => r.wineId)),
     [data],
   );
   const availableWines = useMemo(
@@ -692,20 +681,6 @@ function CantinaSection({
       if (res.ok) await refresh();
     });
   };
-
-  if (!hasUsers) {
-    return (
-      <Section label="Cantina">
-        <div style={{
-          padding: "14px 16px", border: `1px dashed ${ADM.line}`, borderRadius: 6,
-          fontFamily: ADM.serif, fontStyle: "italic", fontSize: 13, color: ADM.inkSoft,
-          textAlign: "center",
-        }}>
-          Collega prima un utente al ristorante per gestirne la cantina.
-        </div>
-      </Section>
-    );
-  }
 
   if (loading) {
     return (
@@ -736,22 +711,10 @@ function CantinaSection({
   }
 
   const totalBottles = distribuzione.length + contoVendita.length;
-  const totalQty = data.inventory.reduce((s, r) => s + r.qtyInStock, 0);
+  const totalQty = (data ?? []).reduce((s, r) => s + r.qtyInStock, 0);
 
   return (
     <Section label={`Cantina · ${totalBottles} vin${totalBottles === 1 ? "o" : "i"} · ${totalQty} bottiglie`}>
-      {data.totalUsers > 1 && (
-        <div style={{
-          padding: "8px 12px", marginBottom: 12, borderRadius: 6,
-          background: ADM.panelAlt,
-          fontFamily: ADM.sans, fontSize: 11.5, color: ADM.inkSoft,
-        }}>
-          Mostro la cantina di <strong>{data.primaryUserEmail ?? "primo utente"}</strong>.
-          Il ristorante ha {data.totalUsers} utenti collegati: la cantina è
-          attualmente legata al singolo profilo (non aggregata).
-        </div>
-      )}
-
       {feedback && (
         <div style={{
           padding: "10px 14px", borderRadius: 6, marginBottom: 12,
@@ -781,7 +744,7 @@ function CantinaSection({
           pending={pending}
           onMove={(id, ch) => run(() => setInventoryChannel(id, ch))}
           onSetQty={(id, qty) => run(() => setInventoryQty(id, qty))}
-          onAdd={(wineId) => run(() => addInventoryRow(data.primaryUserId, wineId, "distribuzione", 0))}
+          onAdd={(wineId) => run(() => addInventoryRow(restaurantId, wineId, "distribuzione", 0))}
           onRemove={(id) => run(() => removeInventoryRow(id))}
         />
         <ChannelColumn
@@ -796,7 +759,7 @@ function CantinaSection({
           pending={pending}
           onMove={(id, ch) => run(() => setInventoryChannel(id, ch))}
           onSetQty={(id, qty) => run(() => setInventoryQty(id, qty))}
-          onAdd={(wineId) => run(() => addInventoryRow(data.primaryUserId, wineId, "contoVendita", 0))}
+          onAdd={(wineId) => run(() => addInventoryRow(restaurantId, wineId, "contoVendita", 0))}
           onRemove={(id) => run(() => removeInventoryRow(id))}
         />
       </div>

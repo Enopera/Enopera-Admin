@@ -3,55 +3,43 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   AdminCustomerInventoryRow,
   CatalogWineOption,
-  CustomerOption,
+  RestaurantInventoryOption,
   WineChannel,
 } from "./types";
 
-/// Lista dei clienti B2B per il selettore della pagina /cantine.
-/// Include tutti i profili linkati a un ristorante (restaurant_id IS NOT NULL),
-/// indipendentemente dal role — un admin può anche possedere un ristorante
-/// di test (es. Osteria Metti) e averne la cantina da gestire.
-export async function listCustomersForInventory(): Promise<CustomerOption[]> {
+/// Lista dei ristoranti per il selettore della pagina /cantine. La cantina e'
+/// condivisa per ristorante, quindi il selettore sceglie un ristorante (non un
+/// singolo utente). Include il conteggio utenti collegati (solo info).
+export async function listRestaurantsForInventory(): Promise<RestaurantInventoryOption[]> {
   const supabase = createAdminClient();
 
-  const [authRes, profilesRes] = await Promise.all([
-    supabase.auth.admin.listUsers({ page: 1, perPage: 200 }),
-    supabase.from("profiles").select("*").not("restaurant_id", "is", null),
+  const [restRes, profRes] = await Promise.all([
+    supabase.from("restaurants").select("id, name, city, district").order("name"),
+    supabase.from("profiles").select("restaurant_id").not("restaurant_id", "is", null),
   ]);
-  if (authRes.error) throw authRes.error;
-  if (profilesRes.error) throw profilesRes.error;
+  if (restRes.error) throw restRes.error;
+  if (profRes.error) throw profRes.error;
 
-  const profileById = new Map(
-    (profilesRes.data ?? []).map((p) => [p.id as string, p]),
-  );
-
-  const out: CustomerOption[] = [];
-  for (const u of authRes.data.users) {
-    const p = profileById.get(u.id);
-    if (!p) continue;
-    out.push({
-      id: u.id,
-      email: u.email ?? "—",
-      fullName: (p.full_name as string) ?? null,
-      restaurantName: (p.restaurant_name as string) ?? null,
-      city: (p.city as string) ?? null,
-      district: (p.district as string) ?? null,
-    });
+  const countByRest = new Map<string, number>();
+  for (const p of profRes.data ?? []) {
+    const rid = p.restaurant_id as string;
+    countByRest.set(rid, (countByRest.get(rid) ?? 0) + 1);
   }
 
-  // Ordine: prima quelli con restaurant_name (più riconoscibili), poi gli altri.
-  return out.sort((a, b) => {
-    const aName = (a.restaurantName ?? a.fullName ?? a.email).toLowerCase();
-    const bName = (b.restaurantName ?? b.fullName ?? b.email).toLowerCase();
-    return aName.localeCompare(bName);
-  });
+  return (restRes.data ?? []).map((r) => ({
+    id: r.id as string,
+    name: r.name as string,
+    city: (r.city as string) ?? null,
+    district: (r.district as string) ?? null,
+    usersCount: countByRest.get(r.id as string) ?? 0,
+  }));
 }
 
-/// Inventario di un singolo cliente, joinato con il catalogo vini.
+/// Inventario (cantina condivisa) di un ristorante, joinato col catalogo vini.
 /// Ritorna sia righe distribuzione che conto vendita; lo split per canale
 /// avviene client-side.
-export async function listCustomerInventory(
-  userId: string,
+export async function listRestaurantInventory(
+  restaurantId: string,
 ): Promise<AdminCustomerInventoryRow[]> {
   const supabase = createAdminClient();
 
@@ -78,14 +66,14 @@ export async function listCustomerInventory(
         price
       )
     `)
-    .eq("user_id", userId);
+    .eq("restaurant_id", restaurantId);
   if (error) throw error;
 
   return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
     const w = r.wines as Record<string, unknown> | null;
     return {
       id: r.id as string,
-      userId: r.user_id as string,
+      userId: (r.user_id as string) ?? null,
       wineId: r.wine_id as string,
       wineLegacyId: (w?.legacy_id as string) ?? null,
       channel: r.channel as WineChannel,

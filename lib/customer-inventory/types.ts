@@ -5,7 +5,9 @@ export type WineChannel = "distribuzione" | "contoVendita";
 /// Una riga di customer_inventory arricchita con i dati del vino dal catalogo.
 export interface AdminCustomerInventoryRow {
   id: string;
-  userId: string;
+  /// Solo provenienza ("chi ha aggiunto"). Null se aggiunta da admin o se
+  /// l'utente e' stato eliminato. La cantina e' per ristorante.
+  userId: string | null;
   wineId: string;
   wineLegacyId: string | null;
   channel: WineChannel;
@@ -25,14 +27,14 @@ export interface AdminCustomerInventoryRow {
   updatedAt: string;
 }
 
-/// Sottoinsieme di AdminUser sufficiente per il selettore cliente.
-export interface CustomerOption {
-  id: string;
-  email: string;
-  fullName: string | null;
-  restaurantName: string | null;
+/// Ristorante nel selettore della pagina /cantine (cantina condivisa).
+export interface RestaurantInventoryOption {
+  id: string;          // restaurant_id
+  name: string;
   city: string | null;
   district: string | null;
+  /// Quanti utenti sono collegati (info; la cantina esiste comunque).
+  usersCount: number;
 }
 
 /// Vino del catalogo, esposto al dropdown "Aggiungi vino".

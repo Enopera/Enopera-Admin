@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { listCustomerInventory } from "./queries";
+import { listRestaurantInventory } from "./queries";
 import type { AdminCustomerInventoryRow, WineChannel } from "./types";
 
 const CANTINE_PATH = "/cantine";
@@ -12,47 +12,14 @@ export type ActionResult =
   | { ok: true; message?: string }
   | { ok: false; error: string };
 
-/// Carica inventario per un ristorante. Risolve il "primary user" (primo
-/// utente collegato) e ritorna le sue righe di customer_inventory + l'id
-/// così le mutation successive possano usarlo per addInventoryRow.
-///
-/// Ritorna null se il ristorante non ha utenti collegati: in quel caso
-/// la modal mostrerà un messaggio "collega prima un utente".
-export async function loadRestaurantInventory(restaurantId: string): Promise<{
-  primaryUserId: string;
-  primaryUserEmail: string | null;
-  totalUsers: number;
-  inventory: AdminCustomerInventoryRow[];
-} | null> {
-  if (!restaurantId) return null;
-  const supabase = createAdminClient();
-
-  // Prendo i profili linkati al ristorante (può essere uno o più).
-  const { data: profiles, error: pErr } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("restaurant_id", restaurantId);
-  if (pErr) throw pErr;
-  if (!profiles || profiles.length === 0) return null;
-
-  // Per ora: primo utente. Se ci sono multi-utenti l'admin ne vede solo uno
-  // ma può sapere che ce ne sono N (totalUsers).
-  const primaryUserId = profiles[0].id as string;
-
-  // Email per UI feedback.
-  const { data: authUsers } = await supabase.auth.admin.listUsers({
-    page: 1, perPage: 200,
-  });
-  const primaryUserEmail = authUsers?.users.find((u) => u.id === primaryUserId)?.email ?? null;
-
-  const inventory = await listCustomerInventory(primaryUserId);
-
-  return {
-    primaryUserId,
-    primaryUserEmail,
-    totalUsers: profiles.length,
-    inventory,
-  };
+/// Carica la cantina (condivisa) di un ristorante. La cantina segue il
+/// ristorante: tutte le righe customer_inventory con quel restaurant_id,
+/// indipendentemente da quanti utenti siano collegati.
+export async function loadRestaurantInventory(
+  restaurantId: string,
+): Promise<AdminCustomerInventoryRow[]> {
+  if (!restaurantId) return [];
+  return listRestaurantInventory(restaurantId);
 }
 
 /// Sposta una riga di customer_inventory da un canale all'altro
@@ -101,29 +68,30 @@ export async function setInventoryQty(
   return { ok: true, message: "Quantità aggiornata" };
 }
 
-/// Crea una nuova riga customer_inventory per un cliente.
-/// Se esiste già (UNIQUE user_id+wine_id) ritorna errore esplicito.
+/// Crea una nuova riga nella cantina (condivisa) di un ristorante.
+/// Se il vino è già presente (UNIQUE restaurant_id+wine_id) ritorna errore.
+/// La riga viene creata con user_id NULL (aggiunta da admin, non da un utente).
 export async function addInventoryRow(
-  userId: string,
+  restaurantId: string,
   wineId: string,
   channel: WineChannel,
   qtyInStock = 0,
 ): Promise<ActionResult> {
-  if (!userId || !wineId) {
-    return { ok: false, error: "Cliente o vino mancante" };
+  if (!restaurantId || !wineId) {
+    return { ok: false, error: "Ristorante o vino mancante" };
   }
   const supabase = createAdminClient();
   const { error } = await supabase
     .from("customer_inventory")
     .insert({
-      user_id: userId,
+      restaurant_id: restaurantId,
       wine_id: wineId,
       channel,
       qty_in_stock: Math.max(0, Math.round(qtyInStock)),
     });
   if (error) {
     if (error.code === "23505") {
-      return { ok: false, error: "Questo vino è già in cantina per il cliente" };
+      return { ok: false, error: "Questo vino è già in cantina per il ristorante" };
     }
     return { ok: false, error: error.message };
   }

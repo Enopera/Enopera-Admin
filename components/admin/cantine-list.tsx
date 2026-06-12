@@ -10,7 +10,7 @@ import { ChannelColumn } from "@/components/admin/cantina-channels";
 import type {
   AdminCustomerInventoryRow,
   CatalogWineOption,
-  CustomerOption,
+  RestaurantInventoryOption,
 } from "@/lib/customer-inventory/types";
 import {
   setInventoryChannel,
@@ -21,22 +21,22 @@ import {
 } from "@/lib/customer-inventory/actions";
 
 export function CantineList({
-  customers,
+  restaurants,
   inventory,
   catalog,
-  selectedUserId,
+  selectedRestaurantId,
 }: {
-  customers: CustomerOption[];
+  restaurants: RestaurantInventoryOption[];
   inventory: AdminCustomerInventoryRow[];
   catalog: CatalogWineOption[];
-  selectedUserId: string | null;
+  selectedRestaurantId: string | null;
 }) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<ActionResult | null>(null);
 
-  const selected = customers.find((c) => c.id === selectedUserId) ?? null;
+  const selected = restaurants.find((c) => c.id === selectedRestaurantId) ?? null;
 
   const { distribuzione, contoVendita } = useMemo(() => {
     const d: AdminCustomerInventoryRow[] = [];
@@ -70,10 +70,10 @@ export function CantineList({
     });
   };
 
-  const onSelectCustomer = (id: string) => {
+  const onSelectRestaurant = (id: string) => {
     setFeedback(null);
     const params = new URLSearchParams();
-    if (id) params.set("u", id);
+    if (id) params.set("r", id);
     const qs = params.toString();
     router.replace(qs ? `/cantine?${qs}` : "/cantine");
   };
@@ -85,13 +85,13 @@ export function CantineList({
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
       <AdmPageHeader
         kicker="Operations · Stock"
-        title="Cantine cliente"
+        title="Cantine ristorante"
         sub={selected
           ? `${totalBottles} vini · ${totalQty} bottiglie totali`
-          : "Seleziona un cliente per gestirne la cantina"}
+          : "Seleziona un ristorante per gestirne la cantina"}
       />
 
-      {/* Customer selector */}
+      {/* Restaurant selector */}
       <div style={{
         padding: isMobile ? "16px" : "20px 36px",
         borderBottom: `1px solid ${ADM.line}`,
@@ -105,12 +105,12 @@ export function CantineList({
           fontFamily: ADM.sans, fontSize: 11.5, color: ADM.inkSoft,
           letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 600,
           flexShrink: 0,
-        }}>Cliente</label>
-        <CustomerSearch
-          customers={customers}
+        }}>Ristorante</label>
+        <RestaurantSearch
+          restaurants={restaurants}
           selected={selected}
           isMobile={isMobile}
-          onSelect={onSelectCustomer}
+          onSelect={onSelectRestaurant}
         />
         {selected && (
           <div style={{
@@ -118,7 +118,9 @@ export function CantineList({
           }}>
             <span style={{
               fontFamily: ADM.sans, fontSize: 12, color: ADM.inkSoft,
-            }}>{selected.email}</span>
+            }}>
+              {selected.usersCount} {selected.usersCount === 1 ? "utente" : "utenti"} collegati
+            </span>
           </div>
         )}
       </div>
@@ -148,7 +150,7 @@ export function CantineList({
             fontFamily: ADM.serif, fontStyle: "italic",
             fontSize: 16, color: ADM.inkSoft,
           }}>
-            Seleziona un cliente dal menu sopra per vedere la sua cantina.
+            Seleziona un ristorante dal menu sopra per vedere la sua cantina.
           </div>
         ) : (
           <div style={{
@@ -194,19 +196,18 @@ export function CantineList({
   );
 }
 
-// ───────── Customer search (combobox) ─────────
+// ───────── Restaurant search (combobox) ─────────
 
-function customerDisplay(c: CustomerOption): string {
-  const name = c.restaurantName ?? c.fullName ?? c.email;
+function restaurantDisplay(c: RestaurantInventoryOption): string {
   const where = [c.city, c.district].filter(Boolean).join(" · ");
-  return where ? `${name} · ${where}` : name;
+  return where ? `${c.name} · ${where}` : c.name;
 }
 
-function CustomerSearch({
-  customers, selected, isMobile, onSelect,
+function RestaurantSearch({
+  restaurants, selected, isMobile, onSelect,
 }: {
-  customers: CustomerOption[];
-  selected: CustomerOption | null;
+  restaurants: RestaurantInventoryOption[];
+  selected: RestaurantInventoryOption | null;
   isMobile: boolean;
   onSelect: (id: string) => void;
 }) {
@@ -217,19 +218,19 @@ function CustomerSearch({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync display value with selected customer when not actively searching.
-  const displayValue = open ? query : selected ? customerDisplay(selected) : query;
+  const displayValue = open ? query : selected ? restaurantDisplay(selected) : query;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return customers.slice(0, 50);
-    const matches = customers.filter((c) => {
+    if (!q) return restaurants.slice(0, 50);
+    const matches = restaurants.filter((c) => {
       const hay = [
-        c.restaurantName, c.fullName, c.email, c.city, c.district,
+        c.name, c.city, c.district,
       ].filter(Boolean).join(" ").toLowerCase();
       return hay.includes(q);
     });
     return matches.slice(0, 50);
-  }, [customers, query]);
+  }, [restaurants, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -244,7 +245,7 @@ function CustomerSearch({
     setHighlight(0);
   }, [query, open]);
 
-  const choose = (c: CustomerOption) => {
+  const choose = (c: RestaurantInventoryOption) => {
     onSelect(c.id);
     setQuery("");
     setOpen(false);
@@ -299,7 +300,7 @@ function CustomerSearch({
               inputRef.current?.blur();
             }
           }}
-          placeholder="Cerca cliente per nome, città, provincia, email…"
+          placeholder="Cerca ristorante per nome, città, provincia…"
           style={{
             flex: 1, minWidth: 0,
             padding: "10px 0",
@@ -311,7 +312,7 @@ function CustomerSearch({
           <button
             type="button"
             onClick={clear}
-            title="Cambia cliente"
+            title="Cambia ristorante"
             style={{
               height: 26, padding: "0 8px", marginRight: 2,
               border: `1px solid ${ADM.line}`, borderRadius: 4,
@@ -337,11 +338,10 @@ function CustomerSearch({
               padding: "14px 14px", fontFamily: ADM.serif, fontStyle: "italic",
               fontSize: 13, color: ADM.inkSoft, textAlign: "center",
             }}>
-              Nessun cliente trovato.
+              Nessun ristorante trovato.
             </div>
           ) : (
             filtered.map((c, idx) => {
-              const name = c.restaurantName ?? c.fullName ?? c.email;
               const where = [c.city, c.district].filter(Boolean).join(" · ");
               const isHi = idx === highlight;
               return (
@@ -363,24 +363,25 @@ function CustomerSearch({
                   <div style={{
                     fontSize: 13.5, color: ADM.ink, fontWeight: 500,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>{name}</div>
+                  }}>{c.name}</div>
                   <div style={{
                     fontSize: 11.5, color: ADM.inkSoft, marginTop: 1,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>
-                    {where || c.email}{where ? ` · ${c.email}` : ""}
+                    {where || "Sede non indicata"}
+                    {c.usersCount ? ` · ${c.usersCount} ${c.usersCount === 1 ? "utente" : "utenti"}` : ""}
                   </div>
                 </button>
               );
             })
           )}
-          {customers.length > filtered.length && query.trim() === "" && (
+          {restaurants.length > filtered.length && query.trim() === "" && (
             <div style={{
               padding: "8px 12px", fontFamily: ADM.sans, fontSize: 11,
               color: ADM.inkSoft, textAlign: "center",
               borderTop: `1px solid ${ADM.lineSoft}`, background: ADM.panelAlt,
             }}>
-              Mostro primi 50 di {customers.length} — digita per filtrare.
+              Mostro primi 50 di {restaurants.length}. Digita per filtrare.
             </div>
           )}
         </div>

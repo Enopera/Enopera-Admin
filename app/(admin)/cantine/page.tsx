@@ -2,14 +2,14 @@ import { ADM } from "@/lib/admin/tokens";
 import { AdmShell } from "@/components/admin/shell";
 import { PAGE_LABELS } from "@/components/admin/nav";
 import {
-  listCustomersForInventory,
-  listCustomerInventory,
+  listRestaurantsForInventory,
+  listRestaurantInventory,
   listCatalogWines,
 } from "@/lib/customer-inventory/queries";
 import type {
   AdminCustomerInventoryRow,
   CatalogWineOption,
-  CustomerOption,
+  RestaurantInventoryOption,
 } from "@/lib/customer-inventory/types";
 import { CantineList } from "@/components/admin/cantine-list";
 
@@ -18,26 +18,26 @@ export const dynamic = "force-dynamic";
 export default async function CantinePage({
   searchParams,
 }: {
-  searchParams: Promise<{ u?: string }>;
+  searchParams: Promise<{ r?: string }>;
 }) {
   const [crumb, sub] = PAGE_LABELS.cantine;
   const params = await searchParams;
-  const userId = params.u ?? null;
+  const restaurantId = params.r ?? null;
 
-  let customers: CustomerOption[] = [];
+  let restaurants: RestaurantInventoryOption[] = [];
   let inventory: AdminCustomerInventoryRow[] = [];
   let catalog: CatalogWineOption[] = [];
   let fetchError: string | null = null;
 
   try {
-    const [c, cat] = await Promise.all([
-      listCustomersForInventory(),
+    const [rs, cat] = await Promise.all([
+      listRestaurantsForInventory(),
       listCatalogWines(),
     ]);
-    customers = c;
+    restaurants = rs;
     catalog = cat;
-    if (userId) {
-      inventory = await listCustomerInventory(userId);
+    if (restaurantId) {
+      inventory = await listRestaurantInventory(restaurantId);
     }
   } catch (e) {
     fetchError = (e as Error).message;
@@ -56,10 +56,10 @@ export default async function CantinePage({
         </div>
       ) : (
         <CantineList
-          customers={customers}
+          restaurants={restaurants}
           inventory={inventory}
           catalog={catalog}
-          selectedUserId={userId}
+          selectedRestaurantId={restaurantId}
         />
       )}
     </AdmShell>
