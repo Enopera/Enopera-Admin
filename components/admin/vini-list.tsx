@@ -276,6 +276,7 @@ function WineTable(props: {
           <thead>
             <tr>
               <Th>Nome</Th>
+              <Th style={{ width: 150 }}>Codice</Th>
               <Th>Produttore</Th>
               <Th style={{ width: 80 }}>Tipo</Th>
               <Th style={{ width: 80 }}>Annata</Th>
@@ -288,7 +289,7 @@ function WineTable(props: {
           <tbody>
             {props.rows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ padding: 36, textAlign: "center", color: ADM.inkMuted }}>
+                <td colSpan={9} style={{ padding: 36, textAlign: "center", color: ADM.inkMuted }}>
                   Nessun vino corrisponde ai filtri.
                 </td>
               </tr>
@@ -360,6 +361,7 @@ function WineRowEditor(props: {
       transition: "opacity 0.15s",
     }}>
       <td style={cellStyle}>{row.name}</td>
+      <td style={{ ...cellStyle, color: ADM.inkSoft }}>{row.code ?? "—"}</td>
       <td style={{ ...cellStyle, color: ADM.inkSoft }}>{row.producer ?? "—"}</td>
       <td style={cellStyle}>{row.type}</td>
       <td style={cellStyle}>{row.vintage ?? "—"}</td>

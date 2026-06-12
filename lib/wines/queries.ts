@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export type WineRow = {
   id: string;
   name: string;
+  code: string | null;
   producer: string | null;
   type: string;
   vintage: number | null;
@@ -22,7 +23,7 @@ export async function listWinesForAdmin(): Promise<WineRow[]> {
   const supa = createAdminClient();
   const { data, error } = await supa
     .from("wines")
-    .select("id, name, producer, type, vintage, grape, region, abv, starty_product_id")
+    .select("id, name, code, producer, type, vintage, grape, region, abv, starty_product_id")
     .eq("active", true)
     .order("producer", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
