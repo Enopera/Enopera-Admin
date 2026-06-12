@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   AdminRestaurant,
+  DeliverySlot,
   RestaurantUserPreview,
   UnlinkedUserOption,
 } from "./types";
@@ -60,6 +61,11 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
     memberSinceYear: (r.member_since_year as number) ?? null,
     notes:           (r.notes             as string) ?? null,
     freeShipping:    (r.free_shipping     as boolean | null) ?? false,
+    closingDays:     ((r.closing_days     as number[] | null) ?? [])
+                       .map((d) => Number(d))
+                       .filter((d) => d >= 1 && d <= 7),
+    deliverySlots:   ((r.delivery_slots   as string[] | null) ?? [])
+                       .filter((s): s is DeliverySlot => s === "morning" || s === "afternoon"),
     priceListId:     (r.price_list_id     as string) ?? null,
     priceListName:   r.price_list_id ? (priceListNameById.get(r.price_list_id as string) ?? null) : null,
     createdAt: r.created_at as string,

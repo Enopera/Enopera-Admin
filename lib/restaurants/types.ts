@@ -1,5 +1,8 @@
 // Tipi condivisi per la gestione ristoranti.
 
+/// Fasce di consegna disponibili per un ristorante.
+export type DeliverySlot = "morning" | "afternoon";
+
 export interface AdminRestaurant {
   id: string;
   name: string;
@@ -13,6 +16,10 @@ export interface AdminRestaurant {
   memberSinceYear: number | null;
   notes: string | null;
   freeShipping: boolean;
+  /// Giorni di chiusura settimanale (ISO 1=Lun .. 7=Dom). Vuoto = nessuno.
+  closingDays: number[];
+  /// Fasce di consegna offerte. Vuoto = non specificato.
+  deliverySlots: DeliverySlot[];
   /// Listino custom assegnato (null = usa il default).
   priceListId: string | null;
   /// Nome del listino assegnato — joinato per UI. Null se priceListId è null.

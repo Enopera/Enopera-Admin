@@ -9,6 +9,7 @@ import { AdmKpiStrip, AdmPageHeader } from "@/components/admin/page-header";
 import { ChannelColumn } from "@/components/admin/cantina-channels";
 import type {
   AdminRestaurant,
+  DeliverySlot,
   UnlinkedUserOption,
 } from "@/lib/restaurants/types";
 import type { PriceListOption } from "@/lib/price-lists/types";
@@ -329,6 +330,8 @@ function RestaurantModal({
     memberSinceYear: restaurant.memberSinceYear,
     notes:           restaurant.notes,
     freeShipping:    restaurant.freeShipping,
+    closingDays:     restaurant.closingDays,
+    deliverySlots:   restaurant.deliverySlots,
   });
   const [addUserId, setAddUserId] = useState("");
 
@@ -478,6 +481,7 @@ function RestaurantModal({
                 </div>
               </label>
             </div>
+            <OperativitaFields form={form} setForm={setForm} />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <AdmBtn
                 kind="primary"
@@ -900,6 +904,8 @@ function CreateRestaurantModal({ onClose }: { onClose: () => void }) {
     memberSinceYear: null,
     notes: "",
     freeShipping: false,
+    closingDays: [],
+    deliverySlots: [],
   });
 
   const parseIntOrNull = (s: unknown): number | null => {
@@ -1018,6 +1024,7 @@ function CreateRestaurantModal({ onClose }: { onClose: () => void }) {
               </div>
             </label>
           </div>
+          <OperativitaFields form={form} setForm={setForm} />
         </div>
         <div style={{
           padding: "14px 24px", borderTop: `1px solid ${ADM.line}`,
@@ -1122,5 +1129,110 @@ function Textarea({
         outline: "none", resize: "vertical", minHeight: 60,
       }}
     />
+  );
+}
+
+// ───────── Operatività (giorni chiusura + fasce consegna) ─────────
+
+// ISO 8601: 1=Lunedì .. 7=Domenica. Allineato con DateTime.weekday di Dart.
+const WEEKDAYS: { iso: number; label: string }[] = [
+  { iso: 1, label: "Lun" },
+  { iso: 2, label: "Mar" },
+  { iso: 3, label: "Mer" },
+  { iso: 4, label: "Gio" },
+  { iso: 5, label: "Ven" },
+  { iso: 6, label: "Sab" },
+  { iso: 7, label: "Dom" },
+];
+
+const SLOTS: { key: DeliverySlot; label: string }[] = [
+  { key: "morning", label: "Mattina" },
+  { key: "afternoon", label: "Pomeriggio" },
+];
+
+function Chip({
+  active, label, onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "6px 13px", borderRadius: 999,
+        border: `1px solid ${active ? ADM.carmine : ADM.line}`,
+        background: active ? ADM.carmineWash : ADM.white,
+        color: active ? ADM.carmine : ADM.inkSoft,
+        fontFamily: ADM.sans, fontSize: 12.5, fontWeight: active ? 600 : 500,
+        cursor: "pointer", outline: "none",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function OperativitaFields({
+  form, setForm,
+}: {
+  form: RestaurantInput;
+  setForm: (f: RestaurantInput) => void;
+}) {
+  const toggleDay = (iso: number) => {
+    const set = new Set(form.closingDays ?? []);
+    if (set.has(iso)) set.delete(iso);
+    else set.add(iso);
+    setForm({ ...form, closingDays: [...set].sort((a, b) => a - b) });
+  };
+  const toggleSlot = (slot: DeliverySlot) => {
+    const set = new Set(form.deliverySlots ?? []);
+    if (set.has(slot)) set.delete(slot);
+    else set.add(slot);
+    // Ordine fisso: mattina prima di pomeriggio.
+    setForm({ ...form, deliverySlots: SLOTS.map((s) => s.key).filter((k) => set.has(k)) });
+  };
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${ADM.line}` }}>
+      <div style={{
+        fontSize: 11, color: ADM.inkMuted, letterSpacing: 0.6,
+        textTransform: "uppercase", fontFamily: ADM.sans, marginBottom: 10,
+      }}>
+        Operatività
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkSoft, marginBottom: 6, fontWeight: 500 }}>
+          Giorni di chiusura
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {WEEKDAYS.map((d) => (
+            <Chip
+              key={d.iso}
+              active={(form.closingDays ?? []).includes(d.iso)}
+              label={d.label}
+              onClick={() => toggleDay(d.iso)}
+            />
+          ))}
+        </div>
+      </div>
+      <div>
+        <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkSoft, marginBottom: 6, fontWeight: 500 }}>
+          Fasce di consegna
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {SLOTS.map((s) => (
+            <Chip
+              key={s.key}
+              active={(form.deliverySlots ?? []).includes(s.key)}
+              label={s.label}
+              onClick={() => toggleSlot(s.key)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

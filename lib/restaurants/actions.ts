@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { DeliverySlot } from "./types";
 
 const PATH = "/ristoranti";
 
@@ -21,6 +22,8 @@ export interface RestaurantInput {
   memberSinceYear?: number | null;
   notes?: string | null;
   freeShipping: boolean;
+  closingDays: number[];
+  deliverySlots: DeliverySlot[];
 }
 
 function toRow(data: RestaurantInput): Record<string, unknown> {
@@ -36,6 +39,11 @@ function toRow(data: RestaurantInput): Record<string, unknown> {
   row.member_since_year = data.memberSinceYear ?? null;
   row.notes             = (data.notes             ?? "").trim() || null;
   row.free_shipping     = data.freeShipping;
+  // Operativita': normalizziamo per rispettare i CHECK del DB.
+  row.closing_days      = (data.closingDays ?? [])
+    .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
+  row.delivery_slots    = (data.deliverySlots ?? [])
+    .filter((s) => s === "morning" || s === "afternoon");
   return row;
 }
 
