@@ -80,13 +80,15 @@ Deno.serve(async (req) => {
   const indirizzo = body.indirizzo?.trim() ?? "";
   const referente = body.referente?.trim() ?? "";
   const email = body.email?.trim() ?? "";
+  // I campi fiscali (ragioneSociale, partitaIva, pec, indirizzo) sono stati
+  // aggiunti al form nella nuova versione dell'app, che li impone lato client.
+  // Server-side restano OPZIONALI per retrocompatibilita': le versioni dell'app
+  // gia' pubblicate non li inviano, e renderli required romperebbe il form per
+  // chi non ha ancora aggiornato. Quando presenti ne validiamo comunque il
+  // formato. Required restano i campi inviati anche dalle versioni vecchie.
   const missing: string[] = [];
   if (!locale) missing.push("locale");
-  if (!ragioneSociale) missing.push("ragioneSociale");
-  if (!partitaIva) missing.push("partitaIva");
-  if (!pec) missing.push("pec");
   if (!citta) missing.push("citta");
-  if (!indirizzo) missing.push("indirizzo");
   if (!referente) missing.push("referente");
   if (!email) missing.push("email");
   if (missing.length) {
@@ -95,10 +97,10 @@ Deno.serve(async (req) => {
   if (!EMAIL_RE.test(email)) {
     return json({ error: "Email non valida" }, 400);
   }
-  if (!/^\d{11}$/.test(partitaIva)) {
+  if (partitaIva && !/^\d{11}$/.test(partitaIva)) {
     return json({ error: "Partita IVA non valida (11 cifre)" }, 400);
   }
-  if (!EMAIL_RE.test(pec)) {
+  if (pec && !EMAIL_RE.test(pec)) {
     return json({ error: "PEC non valida" }, 400);
   }
 
@@ -127,14 +129,15 @@ Deno.serve(async (req) => {
           ${row("Tipologia", esc(tipologia))}
           ${row("Coperti", esc(coperti))}
           ${row("Citta", esc(citta))}
-          ${row("Indirizzo", esc(indirizzo))}
+          ${indirizzo ? row("Indirizzo", esc(indirizzo)) : ""}
         </table>
+        ${(ragioneSociale || partitaIva || pec) ? `
         <div style="color:#7a1a2c;font:600 11px/1.4 'Helvetica Neue',Arial,sans-serif;text-transform:uppercase;letter-spacing:1.4px;margin:18px 0 8px;">Dati fiscali</div>
         <table style="width:100%;border-collapse:collapse;">
-          ${row("Ragione sociale", esc(ragioneSociale))}
-          ${row("Partita IVA", esc(partitaIva))}
-          ${row("PEC", `<a href="mailto:${esc(pec)}" style="color:#7a1a2c;">${esc(pec)}</a>`)}
-        </table>
+          ${ragioneSociale ? row("Ragione sociale", esc(ragioneSociale)) : ""}
+          ${partitaIva ? row("Partita IVA", esc(partitaIva)) : ""}
+          ${pec ? row("PEC", `<a href="mailto:${esc(pec)}" style="color:#7a1a2c;">${esc(pec)}</a>`) : ""}
+        </table>` : ""}
         <div style="color:#7a1a2c;font:600 11px/1.4 'Helvetica Neue',Arial,sans-serif;text-transform:uppercase;letter-spacing:1.4px;margin:18px 0 8px;">Chi e'</div>
         <table style="width:100%;border-collapse:collapse;">
           ${row("Referente", esc(referente))}
@@ -159,12 +162,14 @@ Deno.serve(async (req) => {
     `Tipologia:   ${tipologia}`,
     `Coperti:     ${coperti}`,
     `Citta:       ${citta}`,
-    `Indirizzo:   ${indirizzo}`,
-    "",
-    "DATI FISCALI",
-    `Ragione sociale: ${ragioneSociale}`,
-    `Partita IVA:     ${partitaIva}`,
-    `PEC:             ${pec}`,
+    ...(indirizzo ? [`Indirizzo:   ${indirizzo}`] : []),
+    ...((ragioneSociale || partitaIva || pec) ? [
+      "",
+      "DATI FISCALI",
+      ...(ragioneSociale ? [`Ragione sociale: ${ragioneSociale}`] : []),
+      ...(partitaIva ? [`Partita IVA:     ${partitaIva}`] : []),
+      ...(pec ? [`PEC:             ${pec}`] : []),
+    ] : []),
     "",
     "CHI E'",
     `Referente:   ${referente}`,
