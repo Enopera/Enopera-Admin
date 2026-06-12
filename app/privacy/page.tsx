@@ -200,7 +200,12 @@ export default function PrivacyPage() {
 				<P>
 					Per richiedere la cancellazione dell&apos;account e dei dati
 					associati, contatta info@enopera.com. In alternativa, la richiesta può
-					essere inoltrata all&apos;amministrazione Enopera.
+					essere inoltrata all&apos;amministrazione Enopera. La procedura completa
+					è descritta nella pagina{" "}
+					<a href="/elimina-account" style={{ color: ADM.carmine }}>
+						Eliminazione dell&apos;account
+					</a>
+					.
 				</P>
 
 				<H2>10. Modifiche</H2>
