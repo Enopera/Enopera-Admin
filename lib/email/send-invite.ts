@@ -9,9 +9,9 @@ const RESEND_ENDPOINT = "https://api.resend.com/emails";
 export const APP_INTERNAL_TEST_URL =
   "https://play.google.com/apps/internaltest/4701671619788335871";
 
-// Link al test esterno dell'app Enopera su Apple TestFlight (iPhone).
-export const APP_TESTFLIGHT_URL =
-  "https://testflight.apple.com/join/zMDzpaP4";
+// Link pubblico App Store dell'app Enopera (iPhone).
+export const APP_APPSTORE_URL =
+  "https://apps.apple.com/it/app/enopera/id6778360028";
 
 export type SendInviteResult = { ok: true } | { ok: false; error: string };
 
@@ -31,7 +31,7 @@ export async function sendInviteEmail(params: {
     loginEmail: params.to,
     actionLink: params.actionLink,
     androidUrl: APP_INTERNAL_TEST_URL,
-    iosUrl: APP_TESTFLIGHT_URL,
+    iosUrl: APP_APPSTORE_URL,
   });
 
   try {
@@ -160,7 +160,7 @@ function buildInviteHtml(p: {
                 <table role="presentation" cellpadding="0" cellspacing="0">
                   <tr>
                     <td align="center" style="border:1px solid #7a1a2c; border-radius:8px;">
-                      <a href="${p.iosUrl}" target="_blank" style="display:inline-block; padding:12px 24px; font-family:Arial,Helvetica,sans-serif; font-size:14px; font-weight:600; color:#7a1a2c; text-decoration:none; border-radius:8px;">iPhone (TestFlight)</a>
+                      <a href="${p.iosUrl}" target="_blank" style="display:inline-block; padding:12px 24px; font-family:Arial,Helvetica,sans-serif; font-size:14px; font-weight:600; color:#7a1a2c; text-decoration:none; border-radius:8px;">iPhone (App Store)</a>
                     </td>
                   </tr>
                 </table>
@@ -169,7 +169,7 @@ function buildInviteHtml(p: {
             <tr>
               <td style="padding:4px 32px 0 32px;">
                 <p style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:11.5px; line-height:1.6; color:#a59a94;">
-                  Importante: su <strong style="color:#6b5a5c;">Android</strong> usa sullo smartphone lo stesso account Google con cui ti abbiamo invitato. Su <strong style="color:#6b5a5c;">iPhone</strong> installa prima l'app gratuita TestFlight dall'App Store, poi apri il link. Se il pulsante della password non funziona, copia questo indirizzo nel browser:<br />
+                  Importante: su <strong style="color:#6b5a5c;">Android</strong> usa sullo smartphone lo stesso account Google con cui ti abbiamo invitato. Su <strong style="color:#6b5a5c;">iPhone</strong> scarica l'app direttamente dall'App Store. Se il pulsante della password non funziona, copia questo indirizzo nel browser:<br />
                   <a href="${p.actionLink}" target="_blank" style="color:#7a1a2c; word-break:break-all;">${p.actionLink}</a>
                 </p>
               </td>
