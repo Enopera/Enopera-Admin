@@ -29,7 +29,9 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
 
   const [restRes, profRes, authRes, plRes] = await Promise.all([
     supabase.from("restaurants").select("*").order("name"),
-    supabase.from("profiles").select("id, full_name, role, status, restaurant_id"),
+    supabase.from("profiles").select(
+      "id, full_name, role, status, restaurant_id, whatsapp_reminders_enabled, whatsapp_consent_at",
+    ),
     supabase.auth.admin.listUsers({ page: 1, perPage: 200 }),
     supabase.from("price_lists").select("id, name"),
   ]);
@@ -59,6 +61,8 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
       fullName: (p.full_name as string) ?? null,
       role: (p.role as "admin" | "user") ?? "user",
       status: (p.status as "attivo" | "sospeso" | "invitato") ?? "attivo",
+      whatsappRemindersEnabled: (p.whatsapp_reminders_enabled as boolean | null) ?? false,
+      whatsappConsentAt: (p.whatsapp_consent_at as string | null) ?? null,
     });
     usersByRestaurantId.set(rid, arr);
   }
@@ -82,6 +86,10 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
     deliverySlots:   ((r.delivery_slots   as string[] | null) ?? [])
                        .filter((s): s is DeliverySlot => s === "morning" || s === "afternoon"),
     deliverySlotTimes: parseSlotTimes(r.delivery_slot_times),
+    reminderEnabled:  (r.reminder_enabled as boolean | null) ?? false,
+    reminderWeekdays: ((r.reminder_weekdays as number[] | null) ?? [])
+                        .map((d) => Number(d)).filter((d) => d >= 1 && d <= 7),
+    reminderTime:     r.reminder_time ? String(r.reminder_time).slice(0, 5) : null,
     shippingFeeNet:  r.shipping_fee_net == null ? null : Number(r.shipping_fee_net),
     freeShippingThresholdGross:
                      r.free_shipping_threshold_gross == null ? null : Number(r.free_shipping_threshold_gross),

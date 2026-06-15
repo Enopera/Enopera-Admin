@@ -31,6 +31,12 @@ export interface AdminRestaurant {
   deliverySlots: DeliverySlot[];
   /// Orari per fascia di consegna (es. mattina 10:00-12:00).
   deliverySlotTimes: DeliverySlotTimes;
+  /// Promemoria WhatsApp: master on/off.
+  reminderEnabled: boolean;
+  /// Giorni del promemoria (ISO 1=Lun..7=Dom). Vuoto = nessuno.
+  reminderWeekdays: number[];
+  /// Ora del promemoria, ora locale Europe/Rome ("HH:MM"). Null = non impostata.
+  reminderTime: string | null;
   /// Override costo spedizione netto per il ristorante. NULL = usa il globale.
   shippingFeeNet: number | null;
   /// Override soglia gratis (lordo vini). NULL = usa il globale.
@@ -53,6 +59,10 @@ export interface RestaurantUserPreview {
   fullName: string | null;
   role: "admin" | "user";
   status: "attivo" | "sospeso" | "invitato";
+  /// Opt-in promemoria WhatsApp (default false).
+  whatsappRemindersEnabled: boolean;
+  /// Timestamp consenso (ISO) o null.
+  whatsappConsentAt: string | null;
 }
 
 /// Sottoinsieme di AdminUser sufficiente per il dropdown "Aggiungi utente"
