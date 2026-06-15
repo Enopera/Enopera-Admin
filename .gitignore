@@ -26,6 +26,9 @@ _starty-spec.json
 # Supabase CLI cache locale (linked-project.json, pooler-url, etc.)
 supabase/.temp/
 
+# Deno lockfile generato dai test locali delle edge function (runtime Deno)
+deno.lock
+
 # Script di import one-off (parsano file Excel privati, contengono mapping
 # specifici al singolo cliente). Non committare.
 scripts/

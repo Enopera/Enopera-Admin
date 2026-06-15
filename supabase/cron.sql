@@ -42,6 +42,25 @@ select cron.schedule(
   $$
 );
 
+-- Ogni 15 minuti - promemoria WhatsApp ordini (dry-run finche WHATSAPP_MODE=live).
+-- NB: pattern reale in produzione (come i job sync-*): l'Authorization prende il
+-- service_role dal vault, NON una anon key. Job gia' schedulato live ('whatsapp-reminders').
+select cron.schedule(
+  'whatsapp-reminders',
+  '*/15 * * * *',
+  $$
+    select net.http_post(
+      url := 'https://vguueimgbngnjgoockge.supabase.co/functions/v1/whatsapp-reminders',
+      headers := jsonb_build_object(
+        'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key' limit 1),
+        'Content-Type', 'application/json'
+      ),
+      body := '{}'::jsonb,
+      timeout_milliseconds := 60000
+    );
+  $$
+);
+
 -- Per disabilitare un job:
 --   select cron.unschedule('sync-stock');
 -- Per vedere i job attivi:
