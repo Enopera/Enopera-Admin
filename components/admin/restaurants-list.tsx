@@ -11,6 +11,7 @@ import type {
   AdminRestaurant,
   DeliverySlot,
   DeliverySlotTime,
+  RestaurantUserPreview,
   UnlinkedUserOption,
 } from "@/lib/restaurants/types";
 import type { PriceListOption } from "@/lib/price-lists/types";
@@ -29,6 +30,7 @@ import {
   type ActionResult,
   type RestaurantInput,
 } from "@/lib/restaurants/actions";
+import { setWhatsappReminders } from "@/lib/users/actions";
 import { setRestaurantPriceList } from "@/lib/price-lists/actions";
 import {
   loadRestaurantInventory,
@@ -342,6 +344,9 @@ function RestaurantModal({
     closingDays:     restaurant.closingDays,
     deliverySlots:   restaurant.deliverySlots,
     deliverySlotTimes: restaurant.deliverySlotTimes,
+    reminderEnabled:  restaurant.reminderEnabled,
+    reminderWeekdays: restaurant.reminderWeekdays,
+    reminderTime:     restaurant.reminderTime,
     shippingFeeNet:  restaurant.shippingFeeNet,
     freeShippingThresholdGross: restaurant.freeShippingThresholdGross,
   });
@@ -495,6 +500,17 @@ function RestaurantModal({
               <ShippingOverrideFields form={form} setForm={setForm} config={shippingConfig} />
             </div>
             <OperativitaFields form={form} setForm={setForm} />
+            <NotificheFields
+              form={form}
+              setForm={setForm}
+              users={restaurant.users}
+              onToggleUser={(userId, enabled) => {
+                startTransition(async () => {
+                  const res = await setWhatsappReminders(userId, enabled);
+                  if (!res.ok) setFeedback(res);
+                });
+              }}
+            />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <AdmBtn
                 kind="primary"
@@ -883,6 +899,9 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
     closingDays: [],
     deliverySlots: [],
     deliverySlotTimes: {},
+    reminderEnabled: false,
+    reminderWeekdays: [],
+    reminderTime: null,
     shippingFeeNet: null,
     freeShippingThresholdGross: null,
   });
@@ -1005,6 +1024,12 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
             <ShippingOverrideFields form={form} setForm={setForm} config={shippingConfig} />
           </div>
           <OperativitaFields form={form} setForm={setForm} />
+          <NotificheFields
+            form={form}
+            setForm={setForm}
+            users={[]}
+            onToggleUser={() => undefined}
+          />
         </div>
         <div style={{
           padding: "14px 24px", borderTop: `1px solid ${ADM.line}`,
@@ -1271,6 +1296,105 @@ function OperativitaFields({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ───────── Notifiche WhatsApp ─────────
+
+function NotificheFields({
+  form,
+  setForm,
+  users,
+  onToggleUser,
+}: {
+  form: RestaurantInput;
+  setForm: (f: RestaurantInput) => void;
+  users: RestaurantUserPreview[];
+  onToggleUser: (userId: string, enabled: boolean) => void;
+}) {
+  const toggleDay = (iso: number) => {
+    const set = new Set(form.reminderWeekdays ?? []);
+    if (set.has(iso)) set.delete(iso);
+    else set.add(iso);
+    setForm({ ...form, reminderWeekdays: [...set].sort((a, b) => a - b) });
+  };
+  const on = !!form.reminderEnabled;
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${ADM.line}` }}>
+      <div style={{
+        fontSize: 11, color: ADM.inkMuted, letterSpacing: 0.6,
+        textTransform: "uppercase", fontFamily: ADM.sans, marginBottom: 10,
+      }}>
+        Notifiche WhatsApp
+      </div>
+
+      {/* master toggle */}
+      <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer" }}>
+        <input type="checkbox" checked={on}
+          onChange={(e) => setForm({ ...form, reminderEnabled: e.target.checked })} />
+        <span style={{ fontFamily: ADM.sans, fontSize: 13, color: ADM.ink }}>
+          Promemoria ordini attivo
+        </span>
+      </label>
+
+      {/* weekdays */}
+      <div style={{ marginBottom: 12, opacity: on ? 1 : 0.5, pointerEvents: on ? "auto" : "none" }}>
+        <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkSoft, marginBottom: 6, fontWeight: 500 }}>
+          Giorni del promemoria
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {WEEKDAYS.map((d) => (
+            <Chip key={d.iso} active={(form.reminderWeekdays ?? []).includes(d.iso)}
+              label={d.label} onClick={() => toggleDay(d.iso)} />
+          ))}
+        </div>
+      </div>
+
+      {/* time */}
+      <div style={{ marginBottom: 14, opacity: on ? 1 : 0.5, pointerEvents: on ? "auto" : "none" }}>
+        <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkSoft, marginBottom: 6, fontWeight: 500 }}>
+          Ora del promemoria (Europe/Rome)
+        </div>
+        <TimeInput value={form.reminderTime ?? ""}
+          onChange={(v) => setForm({ ...form, reminderTime: v || null })} />
+      </div>
+
+      {/* per-user opt-in */}
+      <div>
+        <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkSoft, marginBottom: 6, fontWeight: 500 }}>
+          Consenso utenti (opt-in)
+        </div>
+        {users.length === 0 ? (
+          <div style={{ fontFamily: ADM.sans, fontSize: 12.5, color: ADM.inkMuted }}>
+            Nessun utente collegato.
+          </div>
+        ) : (
+          <div style={{ border: `1px solid ${ADM.line}`, borderRadius: 6, overflow: "hidden" }}>
+            {users.map((u, i) => (
+              <label key={u.id} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
+                borderBottom: i < users.length - 1 ? `1px solid ${ADM.lineSoft}` : "none",
+                background: ADM.panel, cursor: "pointer",
+              }}>
+                <input type="checkbox" checked={u.whatsappRemindersEnabled}
+                  onChange={(e) => onToggleUser(u.id, e.target.checked)} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: ADM.sans, fontSize: 13, color: ADM.ink }}>
+                    {u.fullName ?? u.email}
+                  </div>
+                  <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.inkMuted }}>
+                    {u.whatsappConsentAt
+                      ? `Consenso dal ${new Date(u.whatsappConsentAt).toLocaleDateString("it-IT")}`
+                      : "Nessun consenso registrato"}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
