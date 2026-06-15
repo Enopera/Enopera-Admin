@@ -1132,8 +1132,8 @@ const SLOTS: { key: DeliverySlot; label: string }[] = [
 
 // Orari proposti quando si attiva una fascia (l'admin poi li modifica).
 const SLOT_DEFAULT_TIMES: Record<DeliverySlot, DeliverySlotTime> = {
-  morning: { from: "10:00", to: "12:00" },
-  afternoon: { from: "12:00", to: "16:00" },
+  morning: { from: "08:00", to: "10:00" },
+  afternoon: { from: "16:00", to: "18:00" },
 };
 
 function TimeInput({
