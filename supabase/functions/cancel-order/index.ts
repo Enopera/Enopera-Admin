@@ -35,6 +35,7 @@ interface CancelRequest { orderId: string; }
 interface OrderRow {
   id: string;
   user_id: string;
+  restaurant_id: string | null;
   status: string;
   starty_order_id: number | null;
   starty_document_number: string | null;
@@ -62,14 +63,25 @@ Deno.serve(async (req) => {
 
   const { data: orderRaw, error: orderErr } = await supabase
     .from("orders")
-    .select("id, user_id, status, starty_order_id, starty_document_number, created_at, confirmed_at")
+    .select("id, user_id, restaurant_id, status, starty_order_id, starty_document_number, created_at, confirmed_at")
     .eq("id", body.orderId)
     .maybeSingle();
   if (orderErr) return json({ error: "Errore lettura ordine", detail: orderErr.message }, 500);
   const order = orderRaw as OrderRow | null;
   if (!order) return json({ error: "Ordine non trovato" }, 404);
 
-  if (order.user_id !== user.id) return json({ error: "Ordine non autorizzato" }, 403);
+  // Autorizzazione condivisa per ristorante: puo' annullare chi ha piazzato
+  // l'ordine oppure un altro utente collegato allo stesso ristorante.
+  let authorized = order.user_id === user.id;
+  if (!authorized && order.restaurant_id) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("restaurant_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    authorized = !!prof?.restaurant_id && prof.restaurant_id === order.restaurant_id;
+  }
+  if (!authorized) return json({ error: "Ordine non autorizzato" }, 403);
   if (order.status !== "confirmed") {
     return json({ error: `Ordine in stato "${order.status}" non annullabile` }, 409);
   }
