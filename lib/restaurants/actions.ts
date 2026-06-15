@@ -25,6 +25,9 @@ export interface RestaurantInput {
   closingDays: number[];
   deliverySlots: DeliverySlot[];
   deliverySlotTimes: DeliverySlotTimes;
+  reminderEnabled: boolean;
+  reminderWeekdays: number[];
+  reminderTime?: string | null;
   shippingFeeNet?: number | null;
   freeShippingThresholdGross?: number | null;
 }
@@ -57,6 +60,12 @@ function toRow(data: RestaurantInput): Record<string, unknown> {
     }
   }
   row.delivery_slot_times = slotTimes;
+  row.reminder_enabled  = !!data.reminderEnabled;
+  row.reminder_weekdays = (data.reminderWeekdays ?? [])
+    .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
+  row.reminder_time     = data.reminderTime && /^\d{2}:\d{2}$/.test(data.reminderTime)
+    ? data.reminderTime
+    : null;
   // Override spedizione: NULL = eredita dal globale. Valori negativi scartati.
   const fee = data.shippingFeeNet;
   row.shipping_fee_net = (typeof fee === "number" && Number.isFinite(fee) && fee >= 0) ? fee : null;
