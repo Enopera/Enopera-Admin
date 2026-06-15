@@ -10,10 +10,10 @@
 //   <InventoryRow> — singola riga vino con stepper qty, sposta canale, rimuovi
 //   <AddWineDropdown> — selettore vino dal catalogo + bottone aggiungi
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ADM } from "@/lib/admin/tokens";
 import { AdmIcons } from "@/lib/admin/icons";
-import { AdmBtn, fmtEUR, wineSwatch } from "@/lib/admin/primitives";
+import { fmtEUR, wineSwatch } from "@/lib/admin/primitives";
 import type {
   AdminCustomerInventoryRow,
   CatalogWineOption,
@@ -260,7 +260,31 @@ export function AddWineDropdown({
   accent: string;
   onAdd: (wineId: string) => void;
 }) {
-  const [selectId, setSelectId] = useState("");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return availableWines.slice(0, 60);
+    return availableWines.filter((w) => {
+      const hay = [w.name, w.producer, w.vintage?.toString()]
+        .filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q);
+    }).slice(0, 60);
+  }, [availableWines, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  useEffect(() => { setHighlight(0); }, [query, open]);
 
   if (availableWines.length === 0) {
     return (
@@ -275,45 +299,138 @@ export function AddWineDropdown({
     );
   }
 
+  const choose = (w: CatalogWineOption) => {
+    onAdd(w.id);
+    setQuery("");
+    // Tengo il focus per aggiungere piu' vini di fila senza riaprire.
+    inputRef.current?.focus();
+  };
+
   return (
-    <div style={{
-      padding: "12px 14px", borderTop: `1px solid ${ADM.line}`,
-      background: ADM.panelAlt,
-      display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
-    }}>
-      <select
-        value={selectId}
-        onChange={(e) => setSelectId(e.target.value)}
-        disabled={pending}
-        style={{
-          flex: 1, minWidth: 140,
-          padding: "8px 10px",
+    <div
+      ref={wrapRef}
+      style={{
+        padding: "12px 14px", borderTop: `1px solid ${ADM.line}`,
+        background: ADM.panelAlt,
+      }}
+    >
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6,
+        border: `1px solid ${ADM.line}`, borderRadius: 6,
+        background: ADM.white, padding: "0 8px 0 10px",
+      }}>
+        <span style={{ display: "flex", color: ADM.inkSoft, flexShrink: 0 }}>
+          {AdmIcons.search(14)}
+        </span>
+        <input
+          ref={inputRef}
+          value={query}
+          disabled={pending}
+          onChange={(e) => { setQuery(e.target.value); if (!open) setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault(); setOpen(true);
+              setHighlight((h) => Math.min(filtered.length - 1, h + 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setHighlight((h) => Math.max(0, h - 1));
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              const w = filtered[highlight];
+              if (w) choose(w);
+            } else if (e.key === "Escape") {
+              setOpen(false);
+            }
+          }}
+          placeholder="Cerca e aggiungi un vino…"
+          style={{
+            flex: 1, minWidth: 0, padding: "9px 0",
+            border: "none", outline: "none", background: "transparent",
+            fontFamily: ADM.sans, fontSize: 13, color: ADM.ink,
+          }}
+        />
+        {query && (
+          <span
+            onClick={() => { setQuery(""); inputRef.current?.focus(); }}
+            style={{ display: "flex", color: ADM.inkSoft, cursor: "pointer" }}
+          >
+            {AdmIcons.close(12)}
+          </span>
+        )}
+      </div>
+
+      {open && (
+        <div style={{
+          marginTop: 6,
           border: `1px solid ${ADM.line}`, borderRadius: 6,
-          background: ADM.white,
-          fontFamily: ADM.sans, fontSize: 13, color: ADM.ink,
-          cursor: "pointer", outline: "none",
-        }}
-      >
-        <option value="">+ Aggiungi vino…</option>
-        {availableWines.map((w) => (
-          <option key={w.id} value={w.id}>
-            {w.name}{w.producer ? ` · ${w.producer}` : ""}{w.vintage ? ` · ${w.vintage}` : ""}
-          </option>
-        ))}
-      </select>
-      <AdmBtn
-        kind="secondary"
-        size="sm"
-        onClick={() => {
-          if (selectId) {
-            onAdd(selectId);
-            setSelectId("");
-          }
-        }}
-        style={{ borderColor: accent + "55", color: accent }}
-      >
-        Aggiungi
-      </AdmBtn>
+          background: ADM.white, overflow: "hidden",
+          maxHeight: 260, overflowY: "auto",
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{
+              padding: "12px 12px", fontFamily: ADM.serif, fontStyle: "italic",
+              fontSize: 13, color: ADM.inkSoft, textAlign: "center",
+            }}>
+              Nessun vino trovato.
+            </div>
+          ) : (
+            filtered.map((w, idx) => {
+              const isHi = idx === highlight;
+              return (
+                <button
+                  type="button"
+                  key={w.id}
+                  disabled={pending}
+                  onMouseDown={(e) => { e.preventDefault(); choose(w); }}
+                  onMouseEnter={() => setHighlight(idx)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", textAlign: "left",
+                    padding: "8px 12px", border: "none",
+                    borderBottom: idx === filtered.length - 1 ? "none" : `1px solid ${ADM.lineSoft}`,
+                    background: isHi ? ADM.panelAlt : "transparent",
+                    cursor: pending ? "not-allowed" : "pointer",
+                    fontFamily: ADM.sans,
+                  }}
+                >
+                  <span style={{
+                    width: 5, height: 26, borderRadius: 3,
+                    background: wineSwatch(w.type), flexShrink: 0,
+                  }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{
+                      display: "block",
+                      fontFamily: ADM.serif, fontSize: 14, fontWeight: 500, color: ADM.ink,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>{w.name}</span>
+                    <span style={{
+                      display: "block",
+                      fontSize: 11, color: ADM.inkSoft, marginTop: 1,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {[w.producer, w.vintage].filter(Boolean).join(" · ") || "—"}
+                      {" · "}{fmtEUR(w.price)}
+                    </span>
+                  </span>
+                  <span style={{
+                    display: "flex", color: accent, flexShrink: 0,
+                  }}>{AdmIcons.plus(14)}</span>
+                </button>
+              );
+            })
+          )}
+          {!query.trim() && availableWines.length > filtered.length && (
+            <div style={{
+              padding: "8px 12px", fontFamily: ADM.sans, fontSize: 11,
+              color: ADM.inkSoft, textAlign: "center",
+              borderTop: `1px solid ${ADM.lineSoft}`, background: ADM.panelAlt,
+            }}>
+              Mostro i primi 60 di {availableWines.length}. Scrivi per filtrare.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
