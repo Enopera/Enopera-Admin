@@ -3,9 +3,24 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   AdminRestaurant,
   DeliverySlot,
+  DeliverySlotTimes,
   RestaurantUserPreview,
   UnlinkedUserOption,
 } from "./types";
+
+/// Normalizza il jsonb delivery_slot_times in una struttura tipizzata.
+function parseSlotTimes(raw: unknown): DeliverySlotTimes {
+  const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const out: DeliverySlotTimes = {};
+  for (const slot of ["morning", "afternoon"] as DeliverySlot[]) {
+    const v = src[slot];
+    if (v && typeof v === "object") {
+      const o = v as { from?: unknown; to?: unknown };
+      out[slot] = { from: String(o.from ?? ""), to: String(o.to ?? "") };
+    }
+  }
+  return out;
+}
 
 /// Lista ristoranti + utenti collegati (anteprima). Due query in parallelo
 /// poi join client-side per evitare un'esplosione di righe.
@@ -66,6 +81,7 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
                        .filter((d) => d >= 1 && d <= 7),
     deliverySlots:   ((r.delivery_slots   as string[] | null) ?? [])
                        .filter((s): s is DeliverySlot => s === "morning" || s === "afternoon"),
+    deliverySlotTimes: parseSlotTimes(r.delivery_slot_times),
     shippingFeeNet:  r.shipping_fee_net == null ? null : Number(r.shipping_fee_net),
     freeShippingThresholdGross:
                      r.free_shipping_threshold_gross == null ? null : Number(r.free_shipping_threshold_gross),

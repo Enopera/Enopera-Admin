@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { DeliverySlot } from "./types";
+import type { DeliverySlot, DeliverySlotTimes } from "./types";
 
 const PATH = "/ristoranti";
 
@@ -24,6 +24,7 @@ export interface RestaurantInput {
   freeShipping: boolean;
   closingDays: number[];
   deliverySlots: DeliverySlot[];
+  deliverySlotTimes: DeliverySlotTimes;
   shippingFeeNet?: number | null;
   freeShippingThresholdGross?: number | null;
 }
@@ -46,6 +47,16 @@ function toRow(data: RestaurantInput): Record<string, unknown> {
     .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
   row.delivery_slots    = (data.deliverySlots ?? [])
     .filter((s) => s === "morning" || s === "afternoon");
+  // Orari fascia: salvati solo per le fasce attive e solo se valorizzati.
+  const activeSlots = new Set(row.delivery_slots as DeliverySlot[]);
+  const slotTimes: DeliverySlotTimes = {};
+  for (const slot of ["morning", "afternoon"] as DeliverySlot[]) {
+    const t = (data.deliverySlotTimes ?? {})[slot];
+    if (activeSlots.has(slot) && t && (t.from || t.to)) {
+      slotTimes[slot] = { from: t.from ?? "", to: t.to ?? "" };
+    }
+  }
+  row.delivery_slot_times = slotTimes;
   // Override spedizione: NULL = eredita dal globale. Valori negativi scartati.
   const fee = data.shippingFeeNet;
   row.shipping_fee_net = (typeof fee === "number" && Number.isFinite(fee) && fee >= 0) ? fee : null;

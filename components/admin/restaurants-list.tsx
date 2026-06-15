@@ -10,6 +10,7 @@ import { ChannelColumn } from "@/components/admin/cantina-channels";
 import type {
   AdminRestaurant,
   DeliverySlot,
+  DeliverySlotTime,
   UnlinkedUserOption,
 } from "@/lib/restaurants/types";
 import type { PriceListOption } from "@/lib/price-lists/types";
@@ -340,6 +341,7 @@ function RestaurantModal({
     freeShipping:    restaurant.freeShipping,
     closingDays:     restaurant.closingDays,
     deliverySlots:   restaurant.deliverySlots,
+    deliverySlotTimes: restaurant.deliverySlotTimes,
     shippingFeeNet:  restaurant.shippingFeeNet,
     freeShippingThresholdGross: restaurant.freeShippingThresholdGross,
   });
@@ -880,6 +882,7 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
     freeShipping: false,
     closingDays: [],
     deliverySlots: [],
+    deliverySlotTimes: {},
     shippingFeeNet: null,
     freeShippingThresholdGross: null,
   });
@@ -1127,6 +1130,32 @@ const SLOTS: { key: DeliverySlot; label: string }[] = [
   { key: "afternoon", label: "Pomeriggio" },
 ];
 
+// Orari proposti quando si attiva una fascia (l'admin poi li modifica).
+const SLOT_DEFAULT_TIMES: Record<DeliverySlot, DeliverySlotTime> = {
+  morning: { from: "10:00", to: "12:00" },
+  afternoon: { from: "12:00", to: "16:00" },
+};
+
+function TimeInput({
+  value, onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <input
+      type="time"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        padding: "6px 8px", border: `1px solid ${ADM.line}`, borderRadius: 6,
+        background: ADM.white, fontFamily: ADM.mono, fontSize: 13, color: ADM.ink,
+        outline: "none",
+      }}
+    />
+  );
+}
+
 function Chip({
   active, label, onClick,
 }: {
@@ -1166,10 +1195,27 @@ function OperativitaFields({
   };
   const toggleSlot = (slot: DeliverySlot) => {
     const set = new Set(form.deliverySlots ?? []);
-    if (set.has(slot)) set.delete(slot);
-    else set.add(slot);
+    const times = { ...(form.deliverySlotTimes ?? {}) };
+    if (set.has(slot)) {
+      set.delete(slot);
+      delete times[slot];
+    } else {
+      set.add(slot);
+      if (!times[slot]) times[slot] = { ...SLOT_DEFAULT_TIMES[slot] };
+    }
     // Ordine fisso: mattina prima di pomeriggio.
-    setForm({ ...form, deliverySlots: SLOTS.map((s) => s.key).filter((k) => set.has(k)) });
+    setForm({
+      ...form,
+      deliverySlots: SLOTS.map((s) => s.key).filter((k) => set.has(k)),
+      deliverySlotTimes: times,
+    });
+  };
+
+  const setSlotTime = (slot: DeliverySlot, field: "from" | "to", value: string) => {
+    const times = { ...(form.deliverySlotTimes ?? {}) };
+    const cur = times[slot] ?? { from: "", to: "" };
+    times[slot] = { ...cur, [field]: value };
+    setForm({ ...form, deliverySlotTimes: times });
   };
 
   return (
@@ -1209,6 +1255,22 @@ function OperativitaFields({
             />
           ))}
         </div>
+        {SLOTS.filter((s) => (form.deliverySlots ?? []).includes(s.key)).map((s) => {
+          const t = (form.deliverySlotTimes ?? {})[s.key] ?? { from: "", to: "" };
+          return (
+            <div key={s.key} style={{
+              display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap",
+            }}>
+              <span style={{ width: 78, fontFamily: ADM.sans, fontSize: 12, color: ADM.ink, fontWeight: 500 }}>
+                {s.label}
+              </span>
+              <span style={{ fontFamily: ADM.sans, fontSize: 11.5, color: ADM.inkSoft }}>dalle</span>
+              <TimeInput value={t.from} onChange={(v) => setSlotTime(s.key, "from", v)} />
+              <span style={{ fontFamily: ADM.sans, fontSize: 11.5, color: ADM.inkSoft }}>alle</span>
+              <TimeInput value={t.to} onChange={(v) => setSlotTime(s.key, "to", v)} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
