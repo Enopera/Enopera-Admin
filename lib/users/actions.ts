@@ -95,6 +95,26 @@ export async function updateUserProfile(
   return { ok: true, message: "Profilo aggiornato" };
 }
 
+// ─── Attiva / disattiva promemoria WhatsApp per utente ───────
+export async function setWhatsappReminders(
+  userId: string,
+  enabled: boolean,
+): Promise<ActionResult> {
+  if (!userId) return { ok: false, error: "Id utente mancante" };
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      whatsapp_reminders_enabled: enabled,
+      whatsapp_consent_at: enabled ? new Date().toISOString() : null,
+    })
+    .eq("id", userId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(USERS_PATH);
+  revalidatePath("/ristoranti");
+  return { ok: true, message: enabled ? "Promemoria WhatsApp attivati" : "Promemoria WhatsApp disattivati" };
+}
+
 // ─── Elimina utente (auth + profile via cascade) ─────────────
 export async function deleteUser(userId: string): Promise<ActionResult> {
   const supabase = createAdminClient();
