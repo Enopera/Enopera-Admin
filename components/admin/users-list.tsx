@@ -12,6 +12,7 @@ import {
   type ActionResult,
 } from "@/lib/users/actions";
 import { setUserRestaurant } from "@/lib/restaurants/actions";
+import { normalizeE164 } from "@/lib/phone/e164";
 
 /// Opzione del dropdown ristoranti nel drawer utente.
 export interface RestaurantOption {
@@ -427,6 +428,11 @@ function UserDrawer({
                 </Field>
                 <Field label="Telefono">
                   <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={inputStyle} />
+                  {form.phone && !normalizeE164(form.phone) && (
+                    <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.carmine, marginTop: 4 }}>
+                      Formato consigliato per WhatsApp: +39...
+                    </div>
+                  )}
                 </Field>
                 <Field label="Note interne">
                   <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle, fontFamily: ADM.sans, resize: "vertical" }} />
@@ -713,6 +719,11 @@ function InviteModal({ restaurants, onClose }: { restaurants: RestaurantOption[]
                 <input value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="es. +39 ..." style={inputStyle} />
+                {phone && !normalizeE164(phone) && (
+                  <div style={{ fontFamily: ADM.sans, fontSize: 11, color: ADM.carmine, marginTop: 4 }}>
+                    Formato consigliato per WhatsApp: +39...
+                  </div>
+                )}
               </Field>
             </>
           )}
