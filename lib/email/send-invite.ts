@@ -140,6 +140,11 @@ function buildInviteHtml(p: {
               </td>
             </tr>
             <tr>
+              <td align="center" style="padding:0 32px 6px 32px;">
+                <p style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:11.5px; color:#a59a94;">Il link e' valido 7 giorni.</p>
+              </td>
+            </tr>
+            <tr>
               <td style="padding:12px 32px 4px 32px;">
                 <p style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:1.6; color:#6b5a5c;"><strong style="color:#2a1a1d;">2.</strong> Scarica l'app Enopera sul tuo telefono:</p>
               </td>

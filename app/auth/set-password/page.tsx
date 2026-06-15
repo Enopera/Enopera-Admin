@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { setPasswordFromInvite, validateInviteToken } from "@/lib/auth/invite-actions";
 import { ADM } from "@/lib/admin/tokens";
 import { AdmIcons } from "@/lib/admin/icons";
 import { AdmBtn, AdmWordmark } from "@/lib/admin/primitives";
@@ -20,6 +21,8 @@ export default function SetPasswordPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pwd, setPwd] = useState("");
   const [pwd2, setPwd2] = useState("");
+  // Token del flusso invito custom (?invite=...). Null = flusso Supabase.
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -31,6 +34,16 @@ export default function SetPasswordPage() {
       setPhase((cur) => (cur === "loading" ? "ready" : cur));
 
     (async () => {
+      // 0. Flusso invito custom: ?invite=<token> -> validazione server-side.
+      //    Indipendente dal token Supabase; scadenza 7 giorni.
+      const inviteParam = new URL(window.location.href).searchParams.get("invite");
+      if (inviteParam) {
+        setInviteToken(inviteParam);
+        const res = await validateInviteToken(inviteParam);
+        setPhase(res.ok ? "ready" : "expired");
+        return;
+      }
+
       // 1. Errore esplicito nel fragment (es. otp_expired).
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
       const errCode = hash.get("error_code") || hash.get("error");
@@ -118,6 +131,20 @@ export default function SetPasswordPage() {
       return;
     }
     setPhase("saving");
+
+    // Flusso invito custom: imposta la password via server action (service-role).
+    if (inviteToken) {
+      const res = await setPasswordFromInvite(inviteToken, pwd);
+      if (!res.ok) {
+        setErrorMsg(res.error);
+        setPhase("ready");
+        return;
+      }
+      setPhase("success");
+      return;
+    }
+
+    // Flusso Supabase (fallback per eventuali link recovery/implicit).
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({ password: pwd });
     if (error) {

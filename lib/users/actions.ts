@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendInviteEmail } from "@/lib/email/send-invite";
+import { createInviteToken } from "@/lib/auth/invite-tokens";
 import type { AccountRole, AccountStatus } from "./types";
 
 const USERS_PATH = "/utenti";
@@ -128,8 +129,10 @@ export async function inviteUser(
     return { ok: false, error: "Seleziona un ristorante da collegare all'utente" };
   }
 
-  // 1. Crea l'utente e ottieni il link "imposta password" SENZA inviare
-  //    l'email di default di Supabase (generateLink non manda email).
+  // 1. Crea l'utente SENZA inviare l'email di default di Supabase
+  //    (generateLink non manda email). Il suo action_link NON viene usato:
+  //    l'invito usa un token custom a 7 giorni (vedi punto 3). Il reset
+  //    password resta invece sul flusso Supabase.
   const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
     type: "invite",
     email,
@@ -145,9 +148,8 @@ export async function inviteUser(
   if (linkErr) return { ok: false, error: linkErr.message };
 
   const userId = linkData.user?.id;
-  const actionLink = linkData.properties?.action_link;
-  if (!userId || !actionLink) {
-    return { ok: false, error: "Utente creato ma link di invito non disponibile" };
+  if (!userId) {
+    return { ok: false, error: "Utente creato ma id non disponibile" };
   }
 
   // 2. Collega il ristorante: il trigger profiles_sync_on_restaurant_link
@@ -175,11 +177,25 @@ export async function inviteUser(
     }
   }
 
-  // 3. Email custom via Resend: dettagli account + link imposta-password + link testing.
+  // 3. Token di invito custom (scadenza 7 giorni) + link alla pagina
+  //    set-password. Indipendente dalla scadenza OTP di Supabase (che resta
+  //    breve per i reset password).
+  let inviteLink: string;
+  try {
+    const token = await createInviteToken(userId);
+    inviteLink = `${siteUrl}/auth/set-password?invite=${token}`;
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Utente creato ma generazione del link di invito fallita: ${(e as Error).message}`,
+    };
+  }
+
+  // 4. Email custom via Resend: dettagli account + link imposta-password + link testing.
   const mail = await sendInviteEmail({
     to: email,
     restaurantName: data.restaurantName ?? null,
-    actionLink,
+    actionLink: inviteLink,
   });
 
   revalidatePath(USERS_PATH);
