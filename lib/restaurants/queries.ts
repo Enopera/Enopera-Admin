@@ -67,6 +67,14 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
     usersByRestaurantId.set(rid, arr);
   }
 
+  // Ordine alfabetico stabile (per nome, fallback email): la lista utenti del drawer
+  // non deve riordinarsi quando cambia un flag (es. consenso WhatsApp).
+  for (const arr of usersByRestaurantId.values()) {
+    arr.sort((a, b) =>
+      (a.fullName ?? a.email).localeCompare(b.fullName ?? b.email, "it", { sensitivity: "base" }),
+    );
+  }
+
   return (restRes.data ?? []).map((r): AdminRestaurant => ({
     id: r.id as string,
     name: r.name as string,
