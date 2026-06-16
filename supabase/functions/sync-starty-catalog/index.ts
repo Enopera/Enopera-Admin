@@ -116,6 +116,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
   const startedAt = Date.now();
+  // Un solo timestamp per tutto il run: marker di "visto in questo sync".
+  // I vini con last_synced_at < syncTs a fine run sono quelli non piu' in vendita.
+  const syncTs = new Date().toISOString();
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -141,6 +144,11 @@ Deno.serve(async (req) => {
     for (const pl of pls ?? []) {
       if (pl.starty_id) supaPriceListIdByStarty.set(pl.starty_id, pl.id);
     }
+
+    // 2b. Conteggio vini "in vendita" PRIMA del run: serve alla guardia anti-svuotamento
+    //     del prune (vedi step 5b).
+    const { count: prevSold } = await supabase
+      .from("wines").select("id", { count: "exact", head: true }).eq("is_sold", true);
 
     // 3. Fetch prodotti + filtro
     const allProducts = await fetchAllProducts();
@@ -180,7 +188,7 @@ Deno.serve(async (req) => {
         lot_managed: p.lotManaged === true,
         is_sold: p.sold === true,
         active: true,
-        last_synced_at: new Date().toISOString(),
+        last_synced_at: syncTs,
       };
     });
 
@@ -192,6 +200,34 @@ Deno.serve(async (req) => {
         .from("wines")
         .upsert(chunk, { onConflict: "starty_product_id" });
       if (upsertErr) throw upsertErr;
+    }
+
+    // 5b. Prune ("potatura"): delista (is_sold=false) i vini di origine Starty NON presenti
+    //     nel set in-vendita di questo run (prodotti rimossi da Starty o passati a sold=false).
+    //     Soft-delist: NON cancella, lascia active=true (restano visibili in admin) e non tocca
+    //     storico ordini / cantina (nessun FK rotto). Self-healing: se tornano sold, l'upsert
+    //     li riattiva. I vini "in vendita" di questo run hanno last_synced_at = syncTs, quindi
+    //     last_synced_at < syncTs identifica esattamente quelli non piu' visti.
+    //     GUARDIA: salta il prune se il set sincronizzato e' sospettosamente piccolo (probabile
+    //     errore Starty), per non svuotare il catalogo dell'app.
+    let winesDelisted = 0;
+    let pruneSkipped: string | null = null;
+    const okToPrune = wineRows.length >= 100
+      && (prevSold == null || wineRows.length >= prevSold * 0.5);
+    if (!okToPrune) {
+      pruneSkipped =
+        `synced=${wineRows.length} prevSold=${prevSold ?? "n/d"}: sotto soglia di sicurezza, prune saltato`;
+      console.warn(`[sync-starty-catalog] ${pruneSkipped}`);
+    } else {
+      const { data: delisted, error: pruneErr } = await supabase
+        .from("wines")
+        .update({ is_sold: false })
+        .eq("is_sold", true)
+        .not("starty_product_id", "is", null)
+        .lt("last_synced_at", syncTs)
+        .select("id");
+      if (pruneErr) throw pruneErr;
+      winesDelisted = delisted?.length ?? 0;
     }
 
     // 6. Mappo starty_product_id -> wine.id
@@ -225,7 +261,7 @@ Deno.serve(async (req) => {
           price: p.price,
           uom_id: p.uomId ?? null,
           valid_until: p.validUntilDate || null,
-          starty_synced_at: new Date().toISOString(),
+          starty_synced_at: syncTs,
         };
         const existing = priceMap.get(key);
         if (!existing) {
@@ -261,6 +297,8 @@ Deno.serve(async (req) => {
         categories_total: categoriesAll.length,
         wines_unique: uniqueProducts.length,
         wines_synced: wineRows.length,
+        wines_delisted: winesDelisted,
+        prune_skipped: pruneSkipped,
         wine_prices_upserted: priceRows.length,
         price_lists_with_starty_id: supaPriceListIdByStarty.size,
       }),
