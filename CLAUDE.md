@@ -121,7 +121,7 @@ pnpm lint                 # next lint
 pnpm build                # production build (eseguilo PRIMA di committare grosse modifiche)
 ```
 
-- **Commit message**: stile conventional (`feat:`, `fix:`, `chore:`, ecc.). Includi `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` quando il commit è tuo.
+- **Commit message**: stile conventional (`feat:`, `fix:`, `chore:`, ecc.). Includi `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` quando il commit è tuo.
 - **Modifiche DB**: usa `mcp__supabase__apply_migration` con nome snake_case esplicativo, mai SQL editor manuali. Verifica con `mcp__supabase__get_advisors` dopo DDL.
 - **Mai committare** `.env.local`, `_starty-spec.json`, `_design*/`. Il `.gitignore` li copre già.
 - **`tsconfig.json` esclude `supabase/functions`** (runtime Deno, non Node).
