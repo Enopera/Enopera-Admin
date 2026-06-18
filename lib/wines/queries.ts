@@ -25,6 +25,9 @@ export async function listWinesForAdmin(): Promise<WineRow[]> {
     .from("wines")
     .select("id, name, code, producer, type, vintage, grape, region, abv, starty_product_id")
     .eq("active", true)
+    // Nasconde i vini non piu' in vendita (is_sold=false): es. delistati dal prune
+    // quando spariscono/si disabilitano su Starty. Restano nel DB e riappaiono se tornano sold.
+    .eq("is_sold", true)
     .order("producer", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
   if (error) throw error;
