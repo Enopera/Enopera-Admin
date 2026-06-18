@@ -21,6 +21,25 @@ function isIncomplete(w: WineRow): boolean {
   return w.grape == null || w.region == null || w.abv == null;
 }
 
+// Minuscolo + rimozione diacritici (es. "GEWÜRZTRAMINER" -> "gewurztraminer"),
+// così la ricerca è case- e accento-insensibile.
+function normalize(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+// Stringa combinata e normalizzata su cui matchano i token della ricerca:
+// codice + nome + produttore + tipo + regione + vitigno + annata.
+function buildHaystack(w: WineRow): string {
+  return normalize(
+    [w.code, w.name, w.producer, w.type, w.region, w.grape, w.vintage]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
 export function ViniList({ wines: initial, options }: Props) {
   const [wines, setWines] = useState<WineRow[]>(initial);
   const [search, setSearch] = useState("");
@@ -37,13 +56,23 @@ export function ViniList({ wines: initial, options }: Props) {
     return [...s].sort((a, b) => a.localeCompare(b, "it"));
   }, [wines]);
 
+  // Haystack normalizzato per vino, precalcolato per evitare ricalcoli a ogni
+  // tasto premuto. Ricostruito solo quando cambia l'array `wines`.
+  const haystacks = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const w of wines) m.set(w.id, buildHaystack(w));
+    return m;
+  }, [wines]);
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    // Ricerca tokenizzata in AND: ogni parola deve comparire da qualche parte
+    // nella stringa combinata (codice/nome/produttore/...), così l'ordine non
+    // conta e si mischiano campi diversi.
+    const tokens = normalize(search).split(/\s+/).filter(Boolean);
     const matches = wines.filter((w) => {
-      if (q) {
-        const inName = w.name.toLowerCase().includes(q);
-        const inProd = (w.producer ?? "").toLowerCase().includes(q);
-        if (!inName && !inProd) return false;
+      if (tokens.length) {
+        const haystack = haystacks.get(w.id) ?? "";
+        if (!tokens.every((t) => haystack.includes(t))) return false;
       }
       if (filterType && w.type !== filterType) return false;
       if (filterProducer && w.producer !== filterProducer) return false;
@@ -59,7 +88,7 @@ export function ViniList({ wines: initial, options }: Props) {
       if (pa !== 0) return pa;
       return a.name.localeCompare(b.name, "it");
     });
-  }, [wines, search, filterType, filterStatus, filterProducer]);
+  }, [wines, search, filterType, filterStatus, filterProducer, haystacks]);
 
   const incompleteCount = useMemo(() => wines.filter(isIncomplete).length, [wines]);
 
@@ -150,7 +179,7 @@ function Toolbar(props: {
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <input
           type="text"
-          placeholder="Cerca per nome o produttore…"
+          placeholder="Cerca per nome, produttore o codice…"
           value={props.search}
           onChange={(e) => props.onSearch(e.target.value)}
           style={{
