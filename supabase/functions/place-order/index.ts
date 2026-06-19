@@ -444,6 +444,45 @@ Deno.serve(async (req) => {
         httpStatus,
       );
     }
+
+    // 7b. Read-back: conferma che Starty abbia DAVVERO persistito e completato
+    // l'ordine. confirmIt puo' rispondere 2xx mentre il documento viene
+    // rollback-ato / non committato lato Starty: in quel caso il numero di
+    // sequenza resta "bruciato" (buco) e l'ordine sparisce, ma noi avremmo
+    // marcato 'confirmed' lasciando il cliente convinto che l'ordine esista.
+    // (Visto 2026-06-18: doc 26/0651 di PESMA sparito nonostante confirmIt 2xx.)
+    // Accettiamo SOLO se l'ordine e' rileggibile con documentStatus 'CO'.
+    try {
+      const check = await startyFetch<StartyOrderOut>(`/v3/orders/${starty.orderId}`);
+      if (check?.documentStatus !== "CO") {
+        console.error(
+          `[place-order] read-back inatteso per startyOrderId=${starty.orderId} docStatus=${check?.documentStatus ?? "n/d"} (supabase orderId=${orderId})`,
+        );
+        // Possibile draft orfano rimasto in DR: best-effort cleanup.
+        try { await startyFetch(`/v3/orders/${starty.orderId}`, { method: "DELETE" }); } catch (_) {}
+        await supabase.from("orders").update({ status: "failed_confirm" }).eq("id", orderId);
+        return json(
+          {
+            error: "Ordine non confermato su Starty (verifica fallita). Riprova.",
+            detail: `read-back docStatus=${check?.documentStatus ?? "assente"}`,
+          },
+          502,
+        );
+      }
+    } catch (e) {
+      // 404 = ordine non persistito su Starty; altri errori = stato incerto.
+      // In entrambi i casi NON marchiamo 'confirmed': meglio un errore
+      // ritentabile che un falso "confermato".
+      const detail = (e as Error).message;
+      console.error(
+        `[place-order] read-back GET /v3/orders/${starty.orderId} fallito (supabase orderId=${orderId}): ${detail}`,
+      );
+      await supabase.from("orders").update({ status: "failed_confirm" }).eq("id", orderId);
+      return json(
+        { error: "Ordine non confermato su Starty (verifica fallita). Riprova.", detail },
+        502,
+      );
+    }
   }
 
   // 8. Mark confirmed
