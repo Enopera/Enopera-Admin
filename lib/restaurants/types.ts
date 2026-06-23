@@ -15,9 +15,15 @@ export type DeliverySlotTimes = Partial<Record<DeliverySlot, DeliverySlotTime>>;
 export interface AdminRestaurant {
   id: string;
   name: string;
+  /// Denominazione legale. Usata come Riferimento ordine (poReference) su Starty.
+  ragioneSociale: string | null;
   address: string | null;
   city: string | null;
   district: string | null;
+  /// Indirizzo di fatturazione (se diverso dalla spedizione). NULL = usa address.
+  billingAddress: string | null;
+  billingCity: string | null;
+  billingDistrict: string | null;
   vat: string | null;
   email: string | null;
   phone: string | null;

@@ -78,9 +78,13 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
   return (restRes.data ?? []).map((r): AdminRestaurant => ({
     id: r.id as string,
     name: r.name as string,
+    ragioneSociale:  (r.ragione_sociale   as string) ?? null,
     address:         (r.address           as string) ?? null,
     city:            (r.city              as string) ?? null,
     district:        (r.district          as string) ?? null,
+    billingAddress:  (r.billing_address   as string) ?? null,
+    billingCity:     (r.billing_city      as string) ?? null,
+    billingDistrict: (r.billing_district  as string) ?? null,
     vat:             (r.vat               as string) ?? null,
     email:           (r.email             as string) ?? null,
     phone:           (r.phone             as string) ?? null,

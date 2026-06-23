@@ -32,7 +32,8 @@ export default async function CantinePage({
   try {
     const [rs, cat] = await Promise.all([
       listRestaurantsForInventory(),
-      listCatalogWines(),
+      // Prezzi del listino del ristorante selezionato (fallback default).
+      listCatalogWines(restaurantId),
     ]);
     restaurants = rs;
     catalog = cat;

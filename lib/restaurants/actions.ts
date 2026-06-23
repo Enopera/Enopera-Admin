@@ -12,9 +12,13 @@ export type ActionResult =
 
 export interface RestaurantInput {
   name: string;
+  ragioneSociale?: string | null;
   address?: string | null;
   city?: string | null;
   district?: string | null;
+  billingAddress?: string | null;
+  billingCity?: string | null;
+  billingDistrict?: string | null;
   vat?: string | null;
   email?: string | null;
   phone?: string | null;
@@ -35,9 +39,13 @@ export interface RestaurantInput {
 function toRow(data: RestaurantInput): Record<string, unknown> {
   const row: Record<string, unknown> = {};
   row.name              = data.name.trim();
+  row.ragione_sociale   = (data.ragioneSociale     ?? "").trim() || null;
   row.address           = (data.address           ?? "").trim() || null;
   row.city              = (data.city              ?? "").trim() || null;
   row.district          = (data.district          ?? "").trim() || null;
+  row.billing_address   = (data.billingAddress     ?? "").trim() || null;
+  row.billing_city      = (data.billingCity        ?? "").trim() || null;
+  row.billing_district  = (data.billingDistrict    ?? "").trim() || null;
   row.vat               = (data.vat               ?? "").trim() || null;
   row.email             = (data.email             ?? "").trim() || null;
   row.phone             = (data.phone             ?? "").trim() || null;

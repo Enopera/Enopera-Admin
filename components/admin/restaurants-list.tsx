@@ -331,9 +331,13 @@ function RestaurantModal({
 
   const [form, setForm] = useState<RestaurantInput>({
     name:            restaurant.name,
+    ragioneSociale:  restaurant.ragioneSociale,
     address:         restaurant.address,
     city:            restaurant.city,
     district:        restaurant.district,
+    billingAddress:  restaurant.billingAddress,
+    billingCity:     restaurant.billingCity,
+    billingDistrict: restaurant.billingDistrict,
     vat:             restaurant.vat,
     email:           restaurant.email,
     phone:           restaurant.phone,
@@ -425,20 +429,16 @@ function RestaurantModal({
 
           {/* Anagrafica form */}
           <Section label="Anagrafica">
-            <Field label="Nome">
+            <Field label="Nome (insegna)">
               <Input value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
             </Field>
-            <Field label="Indirizzo">
-              <Input value={form.address ?? ""} onChange={(v) => setForm({ ...form, address: v })} />
+            <Field label="Ragione sociale">
+              <Input
+                value={form.ragioneSociale ?? ""}
+                onChange={(v) => setForm({ ...form, ragioneSociale: v })}
+                placeholder="Denominazione legale (Riferimento ordine)"
+              />
             </Field>
-            <Row2>
-              <Field label="Città">
-                <Input value={form.city ?? ""} onChange={(v) => setForm({ ...form, city: v })} />
-              </Field>
-              <Field label="Zona / Calle">
-                <Input value={form.district ?? ""} onChange={(v) => setForm({ ...form, district: v })} />
-              </Field>
-            </Row2>
             <Row2>
               <Field label="P. IVA">
                 <Input value={form.vat ?? ""} onChange={(v) => setForm({ ...form, vat: v })} mono />
@@ -449,6 +449,32 @@ function RestaurantModal({
                   onChange={(v) => setForm({ ...form, memberSinceYear: parseIntOrNull(v) })}
                   mono
                 />
+              </Field>
+            </Row2>
+            <Field label="Indirizzo (spedizione)">
+              <Input value={form.address ?? ""} onChange={(v) => setForm({ ...form, address: v })} />
+            </Field>
+            <Row2>
+              <Field label="Città">
+                <Input value={form.city ?? ""} onChange={(v) => setForm({ ...form, city: v })} />
+              </Field>
+              <Field label="Zona / Calle">
+                <Input value={form.district ?? ""} onChange={(v) => setForm({ ...form, district: v })} />
+              </Field>
+            </Row2>
+            <Field label="Indirizzo di fatturazione">
+              <Input
+                value={form.billingAddress ?? ""}
+                onChange={(v) => setForm({ ...form, billingAddress: v })}
+                placeholder="Lascia vuoto se coincide con la spedizione"
+              />
+            </Field>
+            <Row2>
+              <Field label="Città (fatturazione)">
+                <Input value={form.billingCity ?? ""} onChange={(v) => setForm({ ...form, billingCity: v })} />
+              </Field>
+              <Field label="Zona / Calle (fatturazione)">
+                <Input value={form.billingDistrict ?? ""} onChange={(v) => setForm({ ...form, billingDistrict: v })} />
               </Field>
             </Row2>
             <Row2>
@@ -886,9 +912,13 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
   const [feedback, setFeedback] = useState<ActionResult | null>(null);
   const [form, setForm] = useState<RestaurantInput>({
     name: "",
+    ragioneSociale: "",
     address: "",
     city: "",
     district: "",
+    billingAddress: "",
+    billingCity: "",
+    billingDistrict: "",
     vat: "",
     email: "",
     phone: "",
@@ -950,20 +980,16 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
               border: `1px solid ${feedback.ok ? ADM.green : ADM.red}33`,
             }}>{feedback.ok ? feedback.message ?? "Creato" : feedback.error}</div>
           )}
-          <Field label="Nome *">
+          <Field label="Nome (insegna) *">
             <Input value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
           </Field>
-          <Field label="Indirizzo">
-            <Input value={form.address ?? ""} onChange={(v) => setForm({ ...form, address: v })} />
+          <Field label="Ragione sociale">
+            <Input
+              value={form.ragioneSociale ?? ""}
+              onChange={(v) => setForm({ ...form, ragioneSociale: v })}
+              placeholder="Denominazione legale (Riferimento ordine)"
+            />
           </Field>
-          <Row2>
-            <Field label="Città">
-              <Input value={form.city ?? ""} onChange={(v) => setForm({ ...form, city: v })} />
-            </Field>
-            <Field label="Zona / Calle">
-              <Input value={form.district ?? ""} onChange={(v) => setForm({ ...form, district: v })} />
-            </Field>
-          </Row2>
           <Row2>
             <Field label="P. IVA">
               <Input value={form.vat ?? ""} onChange={(v) => setForm({ ...form, vat: v })} mono />
@@ -974,6 +1000,32 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
                 onChange={(v) => setForm({ ...form, memberSinceYear: parseIntOrNull(v) })}
                 mono
               />
+            </Field>
+          </Row2>
+          <Field label="Indirizzo (spedizione)">
+            <Input value={form.address ?? ""} onChange={(v) => setForm({ ...form, address: v })} />
+          </Field>
+          <Row2>
+            <Field label="Città">
+              <Input value={form.city ?? ""} onChange={(v) => setForm({ ...form, city: v })} />
+            </Field>
+            <Field label="Zona / Calle">
+              <Input value={form.district ?? ""} onChange={(v) => setForm({ ...form, district: v })} />
+            </Field>
+          </Row2>
+          <Field label="Indirizzo di fatturazione">
+            <Input
+              value={form.billingAddress ?? ""}
+              onChange={(v) => setForm({ ...form, billingAddress: v })}
+              placeholder="Lascia vuoto se coincide con la spedizione"
+            />
+          </Field>
+          <Row2>
+            <Field label="Città (fatturazione)">
+              <Input value={form.billingCity ?? ""} onChange={(v) => setForm({ ...form, billingCity: v })} />
+            </Field>
+            <Field label="Zona / Calle (fatturazione)">
+              <Input value={form.billingDistrict ?? ""} onChange={(v) => setForm({ ...form, billingDistrict: v })} />
             </Field>
           </Row2>
           <Row2>

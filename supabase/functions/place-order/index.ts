@@ -30,6 +30,16 @@ const DOC_TYPE_ID   = Number(Deno.env.get("STARTY_DOC_TYPE_ID")  ?? "0");
 
 const BYPASS_STARTY = (Deno.env.get("BYPASS_STARTY") ?? "false").toLowerCase() === "true";
 
+// Notifica email su nuovo ordine (best-effort, non blocca l'ordine).
+// In test recapita a pierangelopancera@gmail.com; in produzione settare
+// ORDER_NOTIFICATION_EMAIL=fb@enopera.com. RESEND_FROM riusa il mittente
+// gia' configurato per le altre mail (default onboarding@resend.dev, che con
+// Resend consegna SOLO all'owner dell'account: per recapitare ad altri serve
+// un dominio verificato).
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
+const ORDER_NOTIFICATION_EMAIL = Deno.env.get("ORDER_NOTIFICATION_EMAIL") ?? "pierangelopancera@gmail.com";
+const RESEND_FROM = Deno.env.get("RESEND_FROM") ?? "Enopera <onboarding@resend.dev>";
+
 // ────────────── tipi ──────────────
 interface PlaceOrderRequest {
   idempotencyKey: string;
@@ -92,6 +102,70 @@ function shortId(uuid: string): string {
   return uuid.split("-")[0].toUpperCase();
 }
 
+// Escape minimale per interpolare testo nell'HTML della mail.
+function escHtml(v: string): string {
+  return v
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// deno-lint-ignore no-explicit-any
+type Supa = any;
+
+// Invia la mail di notifica nuovo ordine via Resend. Best-effort: ogni errore
+// viene loggato e salvato in orders.notification_email_error senza propagare.
+async function sendOrderNotificationEmail(
+  supabase: Supa,
+  o: { orderId: string; restaurantName: string; total: number; itemsCount: number; documentNumber: string | null },
+): Promise<void> {
+  const totalFmt = `€${o.total.toFixed(2)}`;
+  const subject = `Nuovo ordine - ${o.restaurantName} (${totalFmt})`;
+  const bottiglie = `${o.itemsCount} ${o.itemsCount === 1 ? "bottiglia" : "bottiglie"}`;
+  const docLine = o.documentNumber ? ` · doc ${o.documentNumber}` : "";
+  const text =
+    `${o.restaurantName} ha eseguito un ordine di ${totalFmt} (netto vini).\n` +
+    `${bottiglie}${docLine}.\nID ordine: ${o.orderId}`;
+  const html =
+    `<div style="font:400 14px/1.6 'Helvetica Neue',Arial,sans-serif;color:#2a1a1d;">` +
+    `<p><strong>${escHtml(o.restaurantName)}</strong> ha eseguito un ordine di ` +
+    `<strong>${totalFmt}</strong> (netto vini).</p>` +
+    `<p>${bottiglie}${escHtml(docLine)}.<br>ID ordine: ${escHtml(o.orderId)}</p></div>`;
+
+  try {
+    if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY non configurata");
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [ORDER_NOTIFICATION_EMAIL],
+        subject,
+        html,
+        text,
+      }),
+    });
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => "")).slice(0, 300);
+      throw new Error(`Resend ${res.status}: ${detail}`);
+    }
+    await supabase.from("orders").update({
+      notification_email_to: ORDER_NOTIFICATION_EMAIL,
+      notification_email_sent_at: new Date().toISOString(),
+      notification_email_error: null,
+    }).eq("id", o.orderId);
+  } catch (e) {
+    const detail = (e as Error).message;
+    console.error(`[place-order] invio email notifica fallito per orderId=${o.orderId}: ${detail}`);
+    await supabase.from("orders").update({
+      notification_email_to: ORDER_NOTIFICATION_EMAIL,
+      notification_email_error: detail.slice(0, 500),
+    }).eq("id", o.orderId);
+  }
+}
+
 // ────────────── handler ──────────────
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -123,13 +197,23 @@ Deno.serve(async (req) => {
   // catalog_for_current_user. Ci serve sia l'UUID Supabase (per leggere
   // wine_prices) sia lo starty_id (da passare a Starty come priceListId).
   let restaurantPriceListId: string | null = null;
+  // Dati anagrafici/fiscali del ristorante per ordine: ragione sociale (=>
+  // poReference Starty) e indirizzo di fatturazione (=> snapshot ordine).
+  let restRagioneSociale: string | null = null;
+  let restBillingAddress: string | null = null;
+  let restBillingCity: string | null = null;
+  let restBillingDistrict: string | null = null;
   if (profile.restaurant_id) {
     const { data: rest } = await supabase
       .from("restaurants")
-      .select("price_list_id")
+      .select("price_list_id, ragione_sociale, billing_address, billing_city, billing_district")
       .eq("id", profile.restaurant_id)
       .maybeSingle();
     restaurantPriceListId = (rest?.price_list_id as string | null) ?? null;
+    restRagioneSociale = (rest?.ragione_sociale as string | null) ?? null;
+    restBillingAddress = (rest?.billing_address as string | null) ?? null;
+    restBillingCity = (rest?.billing_city as string | null) ?? null;
+    restBillingDistrict = (rest?.billing_district as string | null) ?? null;
   }
   let priceListRow: { id: string; starty_id: number | null; name: string } | null = null;
   if (restaurantPriceListId) {
@@ -264,12 +348,25 @@ Deno.serve(async (req) => {
   }
 
   // 4. INSERT orders { status: 'creating' } — early commit per idempotency.
+  // Indirizzo di fatturazione: se non valorizzato sul ristorante, coincide con
+  // quello di spedizione (profile.address/city/district, sincronizzati da restaurants).
+  const billingAddress = restBillingAddress ?? profile.address;
+  const billingCity = restBillingCity ?? profile.city;
+  const billingDistrict = restBillingDistrict ?? profile.district;
   const customerSnapshot = {
     user_id: user.id,
     email: user.email,
     restaurant_name: profile.restaurant_name,
+    ragione_sociale: restRagioneSociale,
     full_name: profile.full_name,
+    // address resta per retrocompatibilita' (= spedizione); shipping_* esplicito.
     address: profile.address,
+    shipping_address: profile.address,
+    shipping_city: profile.city,
+    shipping_district: profile.district,
+    billing_address: billingAddress,
+    billing_city: billingCity,
+    billing_district: billingDistrict,
     vat: profile.vat,
     phone: profile.phone,
     city: profile.city,
@@ -377,10 +474,20 @@ Deno.serve(async (req) => {
       warehouseId: WAREHOUSE_ID,
       docTypeId: DOC_TYPE_ID,
       dateOrdered: new Date().toISOString().slice(0, 19), // 'YYYY-MM-DDTHH:MM:SS' come da template
-      // Mostrato come "Riferimento ordine" su Starty. Allineato con gli ordini
-      // creati manualmente, che hanno il nome del ristorante (insegna).
-      // Fallback su idempotencyKey se per qualche motivo restaurant_name e' null.
-      poReference: profile.restaurant_name ?? body.idempotencyKey,
+      // Mostrato come "Riferimento ordine" su Starty. Usiamo la RAGIONE SOCIALE
+      // (denominazione legale) del ristorante; fallback all'insegna
+      // (restaurant_name) e infine a idempotencyKey se entrambe assenti.
+      poReference: restRagioneSociale ?? profile.restaurant_name ?? body.idempotencyKey,
+      // ── Indirizzi fatturazione/spedizione su Starty (DA COMPLETARE) ──
+      // L'utente vuole che billing/shipping (vedi customerSnapshot:
+      // billing_address/city/district, shipping_address/city/district) finiscano
+      // anche sull'ordine Starty. In iDempiere gli indirizzi ordine sono
+      // riferimenti a "BP Location" (ID numerici, non testo libero): servono i
+      // nomi-campo esatti dallo spec OpenAPI (_starty-spec.json, non disponibile
+      // in locale) — es. billToLocationId / shipToLocationId o equivalenti.
+      // NON aggiungo campi indovinati qui: Starty risponde 500 a payload con
+      // chiavi sconosciute (vedi commento sopra su payload completo). Mappare
+      // qui una volta confermati i campi dallo spec.
       // Business defaults (vedi STARTY_*_DEFAULT in cima al file).
       fob: STARTY_FOB_DEFAULT,
       shipmentReason: STARTY_SHIPMENT_REASON_DEFAULT,
@@ -490,6 +597,16 @@ Deno.serve(async (req) => {
     status: "confirmed",
     confirmed_at: new Date().toISOString(),
   }).eq("id", orderId);
+
+  // 9. Notifica email (best-effort): l'ordine e' gia' confermato, un errore
+  // di invio NON deve far fallire la chiamata. Registriamo esito/errore su orders.
+  await sendOrderNotificationEmail(supabase, {
+    orderId,
+    restaurantName: profile.restaurant_name ?? restRagioneSociale ?? user.email ?? "Cliente",
+    total,
+    itemsCount,
+    documentNumber: startyDocNumber,
+  });
 
   return json({
     ok: true,

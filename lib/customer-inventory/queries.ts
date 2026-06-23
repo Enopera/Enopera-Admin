@@ -7,6 +7,51 @@ import type {
   WineChannel,
 } from "./types";
 
+/// Risolve il listino prezzi da usare: quello custom del ristorante (se passato
+/// e valorizzato), altrimenti il listino di default globale. Replica la logica
+/// di place-order così i prezzi mostrati in admin coincidono con quelli ordine.
+async function resolvePriceListId(
+  // deno/next: client Supabase service-role
+  supabase: ReturnType<typeof createAdminClient>,
+  restaurantId?: string | null,
+): Promise<string | null> {
+  if (restaurantId) {
+    const { data: rest } = await supabase
+      .from("restaurants")
+      .select("price_list_id")
+      .eq("id", restaurantId)
+      .maybeSingle();
+    const id = (rest?.price_list_id as string | null) ?? null;
+    if (id) return id;
+  }
+  const { data } = await supabase
+    .from("price_lists")
+    .select("id")
+    .eq("is_default", true)
+    .limit(1)
+    .maybeSingle();
+  return (data?.id as string | null) ?? null;
+}
+
+/// Mappa wine_id -> prezzo per un listino dato. Vuota se priceListId è null.
+async function pricesByWine(
+  supabase: ReturnType<typeof createAdminClient>,
+  priceListId: string | null,
+  wineIds: string[],
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!priceListId || wineIds.length === 0) return map;
+  const { data } = await supabase
+    .from("wine_prices")
+    .select("wine_id, price")
+    .eq("price_list_id", priceListId)
+    .in("wine_id", wineIds);
+  for (const r of (data ?? []) as Array<{ wine_id: string; price: string | number }>) {
+    map.set(r.wine_id, Number(r.price));
+  }
+  return map;
+}
+
 /// Lista dei ristoranti per il selettore della pagina /cantine. La cantina e'
 /// condivisa per ristorante, quindi il selettore sceglie un ristorante (non un
 /// singolo utente). Include il conteggio utenti collegati (solo info).
@@ -62,14 +107,23 @@ export async function listRestaurantInventory(
         name,
         producer,
         type,
-        vintage,
-        price
+        vintage
       )
     `)
     .eq("restaurant_id", restaurantId);
   if (error) throw error;
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+  // Prezzo effettivo dal listino del ristorante (fallback default), NON da
+  // wines.price (colonna legacy ~0 non più sincronizzata).
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const priceListId = await resolvePriceListId(supabase, restaurantId);
+  const priceMap = await pricesByWine(
+    supabase,
+    priceListId,
+    rows.map((r) => r.wine_id as string),
+  );
+
+  return rows.map((r) => {
     const w = r.wines as Record<string, unknown> | null;
     return {
       id: r.id as string,
@@ -82,7 +136,7 @@ export async function listRestaurantInventory(
       wineProducer: (w?.producer as string) ?? null,
       wineType: (w?.type as string) ?? "Rosso",
       wineVintage: (w?.vintage as number) ?? null,
-      winePrice: Number(w?.price ?? 0),
+      winePrice: priceMap.get(r.wine_id as string) ?? 0,
       startyWarehouseId: (r.starty_warehouse_id as number) ?? null,
       lastReceivedAt: (r.last_received_at as string) ?? null,
       lastConsumedAt: (r.last_consumed_at as string) ?? null,
@@ -94,21 +148,28 @@ export async function listRestaurantInventory(
 }
 
 /// Catalogo vini attivi (per il dropdown "Aggiungi vino" nella pagina).
-export async function listCatalogWines(): Promise<CatalogWineOption[]> {
+/// Il prezzo è quello del listino del ristorante (se `restaurantId` passato),
+/// altrimenti del listino di default — mai più la colonna legacy wines.price.
+export async function listCatalogWines(
+  restaurantId?: string | null,
+): Promise<CatalogWineOption[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("wines")
-    .select("id, legacy_id, name, producer, type, vintage, price")
+    .select("id, legacy_id, name, producer, type, vintage")
     .eq("active", true)
     .order("name");
   if (error) throw error;
-  return ((data ?? []) as Array<Record<string, unknown>>).map((w) => ({
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const priceListId = await resolvePriceListId(supabase, restaurantId);
+  const priceMap = await pricesByWine(supabase, priceListId, rows.map((w) => w.id as string));
+  return rows.map((w) => ({
     id: w.id as string,
     legacyId: (w.legacy_id as string) ?? null,
     name: w.name as string,
     producer: (w.producer as string) ?? null,
     type: (w.type as string) ?? "Rosso",
     vintage: (w.vintage as number) ?? null,
-    price: Number(w.price ?? 0),
+    price: priceMap.get(w.id as string) ?? 0,
   }));
 }
