@@ -125,11 +125,34 @@ async function sendOrderNotificationEmail(
   const text =
     `${o.restaurantName} ha eseguito un ordine di ${totalFmt} (netto vini).\n` +
     `${bottiglie}${docLine}.\nID ordine: ${o.orderId}`;
-  const html =
-    `<div style="font:400 14px/1.6 'Helvetica Neue',Arial,sans-serif;color:#2a1a1d;">` +
-    `<p><strong>${escHtml(o.restaurantName)}</strong> ha eseguito un ordine di ` +
-    `<strong>${totalFmt}</strong> (netto vini).</p>` +
-    `<p>${bottiglie}${escHtml(docLine)}.<br>ID ordine: ${escHtml(o.orderId)}</p></div>`;
+  // Stile brandizzato Vendemmia, coerente con la mail di partner-request:
+  // sfondo avorio, card con header carminio, tabella dettagli.
+  const rowHtml = (label: string, value: string) => `
+    <tr>
+      <td style="padding:7px 16px 7px 0;color:#a59a94;font:600 11px/1.4 'Helvetica Neue',Arial,sans-serif;text-transform:uppercase;letter-spacing:1px;vertical-align:top;white-space:nowrap;">${label}</td>
+      <td style="padding:7px 0;color:#2a1a1d;font:400 14px/1.5 'Helvetica Neue',Arial,sans-serif;">${value}</td>
+    </tr>`;
+  const html = `
+  <div style="background:#f6efe4;padding:28px;">
+    <div style="max-width:520px;margin:0 auto;background:#fbf7ee;border:1px solid #e2d5c0;border-radius:16px;overflow:hidden;">
+      <div style="background:#7a1a2c;padding:20px 24px;">
+        <div style="color:#e9c9a0;font:600 10px/1 'Helvetica Neue',Arial,sans-serif;text-transform:uppercase;letter-spacing:2px;">Nuovo ordine</div>
+        <div style="color:#fff1df;font:500 22px/1.25 Georgia,serif;margin-top:6px;">${escHtml(o.restaurantName)}</div>
+      </div>
+      <div style="padding:22px 24px;">
+        <div style="font:400 12px/1 'Helvetica Neue',Arial,sans-serif;color:#a59a94;text-transform:uppercase;letter-spacing:1.4px;">Totale (netto vini)</div>
+        <div style="font:600 34px/1.1 Georgia,serif;color:#7a1a2c;margin:6px 0 18px;">${totalFmt}</div>
+        <table style="width:100%;border-collapse:collapse;border-top:1px solid #e2d5c0;">
+          ${rowHtml("Bottiglie", escHtml(bottiglie))}
+          ${o.documentNumber ? rowHtml("Documento", escHtml(o.documentNumber)) : ""}
+          ${rowHtml("ID ordine", escHtml(o.orderId))}
+        </table>
+      </div>
+      <div style="padding:14px 24px;border-top:1px solid #e2d5c0;color:#a59a94;font:400 11px/1.4 'Helvetica Neue',Arial,sans-serif;">
+        Notifica automatica generata dall'app Enopera Portal.
+      </div>
+    </div>
+  </div>`;
 
   try {
     if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY non configurata");
