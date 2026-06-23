@@ -20,6 +20,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   startyFetch, StartyHttpError,
   type StartyOrderIn, type StartyOrderOut,
+  type StartyBusinessPartner, type StartyBpLocation,
 } from "../_shared/starty.ts";
 
 // ────────────── env ──────────────
@@ -31,13 +32,13 @@ const DOC_TYPE_ID   = Number(Deno.env.get("STARTY_DOC_TYPE_ID")  ?? "0");
 const BYPASS_STARTY = (Deno.env.get("BYPASS_STARTY") ?? "false").toLowerCase() === "true";
 
 // Notifica email su nuovo ordine (best-effort, non blocca l'ordine).
-// In test recapita a pierangelopancera@gmail.com; in produzione settare
-// ORDER_NOTIFICATION_EMAIL=fb@enopera.com. RESEND_FROM riusa il mittente
-// gia' configurato per le altre mail (default onboarding@resend.dev, che con
-// Resend consegna SOLO all'owner dell'account: per recapitare ad altri serve
-// un dominio verificato).
+// Default destinatario = fb@enopera.com (produzione); per cambiarlo settare il
+// secret ORDER_NOTIFICATION_EMAIL. RESEND_FROM riusa il mittente gia'
+// configurato per le altre mail (default onboarding@resend.dev, che con Resend
+// consegna SOLO all'owner dell'account: per recapitare a fb@enopera.com serve
+// un dominio verificato in Resend).
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
-const ORDER_NOTIFICATION_EMAIL = Deno.env.get("ORDER_NOTIFICATION_EMAIL") ?? "pierangelopancera@gmail.com";
+const ORDER_NOTIFICATION_EMAIL = Deno.env.get("ORDER_NOTIFICATION_EMAIL") ?? "fb@enopera.com";
 const RESEND_FROM = Deno.env.get("RESEND_FROM") ?? "Enopera <onboarding@resend.dev>";
 
 // ────────────── tipi ──────────────
@@ -107,6 +108,24 @@ function escHtml(v: string): string {
   return v
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Seleziona l'ID indirizzo (businessPartnerLocationId) del BP per un ruolo.
+// Preferenza: flag esplicito (billTo|shipTo) -> indirizzo 'default' -> primo
+// con id valido. Ritorna null se la lista e' vuota/assente o nessun elemento
+// ha un id: in quel caso il chiamante NON valorizza il campo sull'ordine e
+// lascia il default del template Starty.
+function pickBpLocation(
+  locations: StartyBpLocation[] | null | undefined,
+  flag: "billTo" | "shipTo",
+): number | null {
+  if (!locations?.length) return null;
+  const byFlag = locations.find((l) => l[flag] === true && l.businessPartnerLocationId);
+  if (byFlag) return byFlag.businessPartnerLocationId;
+  const byDefault = locations.find((l) => l.default === true && l.businessPartnerLocationId);
+  if (byDefault) return byDefault.businessPartnerLocationId;
+  const first = locations.find((l) => l.businessPartnerLocationId);
+  return first?.businessPartnerLocationId ?? null;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -479,11 +498,25 @@ Deno.serve(async (req) => {
     });
     let orderTemplate: Record<string, unknown>;
     let lineTemplate: Record<string, unknown>;
+    // Indirizzi BP (fatturazione/spedizione): fetch best-effort in parallelo ai
+    // template. NON deve mai far fallire l'ordine -> .catch lo degrada a null,
+    // cosi' un errore sul BP non rigetta la Promise.all (che invece e' critica
+    // per i template). Se null, gli indirizzi restano quelli del template.
+    let bpLocations: StartyBpLocation[] | null = null;
     try {
-      [orderTemplate, lineTemplate] = await Promise.all([
+      let bp: StartyBusinessPartner | null;
+      [orderTemplate, lineTemplate, bp] = await Promise.all([
         startyFetch<Record<string, unknown>>(`/v3/orders/default?${defaultQuery}`),
         startyFetch<Record<string, unknown>>(`/v3/orders/lines/default`),
+        startyFetch<StartyBusinessPartner>(`/v3/business-partners/${profile.starty_bp_id!}`)
+          .catch((e) => {
+            console.error(
+              `[place-order] fetch indirizzi BP fallito (non bloccante) per orderId=${orderId} bpId=${profile.starty_bp_id}: ${(e as Error).message}`,
+            );
+            return null;
+          }),
       ]);
+      bpLocations = bp?.locations ?? null;
     } catch (e) {
       const detail = (e as Error).message;
       console.error(`[place-order] fetch defaults failed for orderId=${orderId}: ${detail}`);
@@ -491,33 +524,55 @@ Deno.serve(async (req) => {
       return json({ error: "Inizializzazione ordine Starty fallita", detail }, 502);
     }
 
+    // Risolvi gli ID indirizzo per fatturazione e spedizione (vedi pickBpLocation).
+    const billLocationId = pickBpLocation(bpLocations, "billTo");
+    const shipLocationId = pickBpLocation(bpLocations, "shipTo");
+
+    // poReference = "Riferimento ordine" su Starty. Limite DURO di 20 caratteri
+    // (dichiarato dallo spec: il valore viene propagato sulla fattura
+    // elettronica). E' solo un'etichetta leggibile per identificare il ristorante
+    // a magazzino; NON e' una chiave di idempotenza/lookup (quella e'
+    // orders.client_idempotency_key, separata e salvata a lunghezza piena),
+    // quindi troncare e' collision-safe. Tutte le sorgenti possono superare i 20
+    // char (ragione sociale/insegna sono free-text non limitati; idempotencyKey
+    // e' sempre 32 hex) -> troncamento SEMPRE sul valore finale. Pre-trim + `||`
+    // saltano sorgenti vuote/whitespace; ultimo fallback shortId(orderId)
+    // (= orderNumber mostrato all'utente), piu' utile del vecchio idempotencyKey
+    // opaco. Il nome legale completo resta comunque sull'ordine tramite
+    // businessPartnerId -> BusinessPartner.name.
+    // Array.from taglia sui CODE POINT (non sui code unit UTF-16): per "20
+    // caratteri" e' la lettura corretta ed evita di spezzare un eventuale
+    // surrogate pair (es. emoji nell'insegna) lasciando un surrogate spaiato
+    // non valido nell'XML della fattura elettronica. Per i nomi legali latini
+    // e' equivalente a slice(0,20).
+    const poReference = Array.from(
+      restRagioneSociale?.trim() || profile.restaurant_name?.trim() || shortId(orderId),
+    ).slice(0, 20).join("").trimEnd();
+
     const orderIn = {
       ...orderTemplate,
       businessPartnerId: profile.starty_bp_id!,
       warehouseId: WAREHOUSE_ID,
       docTypeId: DOC_TYPE_ID,
       dateOrdered: new Date().toISOString().slice(0, 19), // 'YYYY-MM-DDTHH:MM:SS' come da template
-      // Mostrato come "Riferimento ordine" su Starty. Usiamo la RAGIONE SOCIALE
-      // (denominazione legale) del ristorante; fallback all'insegna
-      // (restaurant_name) e infine a idempotencyKey se entrambe assenti.
-      poReference: restRagioneSociale ?? profile.restaurant_name ?? body.idempotencyKey,
-      // Nota del cliente (orders.notes) -> "Descrizione" dell'header ordine
-      // Starty. `description` e' il campo standard iDempiere per le note
-      // d'ordine. La valorizziamo SOLO se la nota esiste, cosi' gli ordini
-      // senza nota restano byte-identici a prima (zero rischio sul payload).
-      // Se la nota non comparisse su Starty, confermare il nome campo sullo
-      // spec/UI Starty (potrebbe essere description/note/comment).
+      // Vedi calcolo + cap a 20 char sopra (const poReference).
+      poReference,
+      // Nota del cliente (orders.notes) -> campo `description` dell'header
+      // ordine Starty. CONFERMATO sullo spec OpenAPI (_starty-spec.json):
+      // Order.description = "Nota cliente" (mentre Order.notaInterna = "Nota
+      // interna", che NON usiamo qui). La valorizziamo SOLO se la nota esiste,
+      // cosi' gli ordini senza nota restano byte-identici a prima.
       ...(body.notes ? { description: body.notes } : {}),
-      // ── Indirizzi fatturazione/spedizione su Starty (DA COMPLETARE) ──
-      // L'utente vuole che billing/shipping (vedi customerSnapshot:
-      // billing_address/city/district, shipping_address/city/district) finiscano
-      // anche sull'ordine Starty. In iDempiere gli indirizzi ordine sono
-      // riferimenti a "BP Location" (ID numerici, non testo libero): servono i
-      // nomi-campo esatti dallo spec OpenAPI (_starty-spec.json, non disponibile
-      // in locale) — es. billToLocationId / shipToLocationId o equivalenti.
-      // NON aggiungo campi indovinati qui: Starty risponde 500 a payload con
-      // chiavi sconosciute (vedi commento sopra su payload completo). Mappare
-      // qui una volta confermati i campi dallo spec.
+      // ── Indirizzi fatturazione/spedizione su Starty ──
+      // Order.indFatturazioneId / indSpedizioneId sono riferimenti numerici a
+      // BusinessPartnerLocation del BP (NON testo libero) — confermati sullo
+      // spec OpenAPI. Risolti sopra da GET /v3/business-partners/{id}:
+      // billTo -> fatturazione, shipTo -> spedizione (fallback: 'default', poi
+      // primo). Li valorizziamo SOLO se risolti; altrimenti lasciamo il default
+      // del template (...orderTemplate), cosi' un fetch BP fallito o un BP senza
+      // indirizzi mappati non peggiora mai l'ordine.
+      ...(billLocationId ? { indFatturazioneId: billLocationId } : {}),
+      ...(shipLocationId ? { indSpedizioneId: shipLocationId } : {}),
       // Business defaults (vedi STARTY_*_DEFAULT in cima al file).
       fob: STARTY_FOB_DEFAULT,
       shipmentReason: STARTY_SHIPMENT_REASON_DEFAULT,

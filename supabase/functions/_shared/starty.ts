@@ -115,8 +115,10 @@ export interface StartyOrderIn {
   paymentTermId?: number;
   currencyId?: number;
   dateOrdered: string;        // YYYY-MM-DD
-  poReference?: string;       // <- visualizzato come "Riferimento ordine" su Starty (nome ristorante)
-  description?: string;       // <- "Descrizione" header ordine: usato per la nota cliente (orders.notes)
+  poReference?: string;       // <- "Riferimento ordine" su Starty (ragione sociale). Max 20 char lato Starty.
+  description?: string;       // <- "Nota cliente" (Order.description): usato per la nota cliente (orders.notes)
+  indFatturazioneId?: number; // <- "Indirizzo fatturazione": businessPartnerLocationId con billTo
+  indSpedizioneId?: number;   // <- "Indirizzo spedizione": businessPartnerLocationId con shipTo
   orderLines: StartyOrderLineIn[];
 }
 
@@ -125,4 +127,25 @@ export interface StartyOrderOut extends StartyOrderIn {
   documentNumber: string;
   documentStatus: string;
   isHandled: string;
+}
+
+// Indirizzo del business partner (sottoinsieme di BusinessPartnerLocation dello
+// spec OpenAPI). `businessPartnerLocationId` e' il valore atteso da
+// Order.indFatturazioneId / indSpedizioneId. I flag billTo/shipTo/default
+// servono a scegliere l'indirizzo corretto per fatturazione/spedizione.
+export interface StartyBpLocation {
+  businessPartnerLocationId: number;
+  billTo?: boolean;
+  shipTo?: boolean;
+  default?: boolean;
+  name?: string;
+}
+
+// Sottoinsieme di BusinessPartner: ci interessa solo la lista indirizzi.
+// GET /v3/business-partners/{id} ritorna l'oggetto BP con `locations` inline
+// (non esiste un sub-endpoint dedicato agli indirizzi).
+export interface StartyBusinessPartner {
+  businessPartnerId: number;
+  name?: string;
+  locations?: StartyBpLocation[];
 }
