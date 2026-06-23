@@ -501,6 +501,13 @@ Deno.serve(async (req) => {
       // (denominazione legale) del ristorante; fallback all'insegna
       // (restaurant_name) e infine a idempotencyKey se entrambe assenti.
       poReference: restRagioneSociale ?? profile.restaurant_name ?? body.idempotencyKey,
+      // Nota del cliente (orders.notes) -> "Descrizione" dell'header ordine
+      // Starty. `description` e' il campo standard iDempiere per le note
+      // d'ordine. La valorizziamo SOLO se la nota esiste, cosi' gli ordini
+      // senza nota restano byte-identici a prima (zero rischio sul payload).
+      // Se la nota non comparisse su Starty, confermare il nome campo sullo
+      // spec/UI Starty (potrebbe essere description/note/comment).
+      ...(body.notes ? { description: body.notes } : {}),
       // ── Indirizzi fatturazione/spedizione su Starty (DA COMPLETARE) ──
       // L'utente vuole che billing/shipping (vedi customerSnapshot:
       // billing_address/city/district, shipping_address/city/district) finiscano

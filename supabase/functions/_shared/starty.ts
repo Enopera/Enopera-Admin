@@ -116,6 +116,7 @@ export interface StartyOrderIn {
   currencyId?: number;
   dateOrdered: string;        // YYYY-MM-DD
   poReference?: string;       // <- visualizzato come "Riferimento ordine" su Starty (nome ristorante)
+  description?: string;       // <- "Descrizione" header ordine: usato per la nota cliente (orders.notes)
   orderLines: StartyOrderLineIn[];
 }
 
