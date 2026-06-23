@@ -33,19 +33,22 @@ async function resolvePriceListId(
   return (data?.id as string | null) ?? null;
 }
 
-/// Mappa wine_id -> prezzo per un listino dato. Vuota se priceListId è null.
-async function pricesByWine(
+/// Mappa wine_id -> prezzo per TUTTO un listino. Una sola query, SENZA filtro
+/// `.in("wine_id", [...])`: con centinaia di id quel filtro genera una URL
+/// enorme che PostgREST rifiuta (URI too long), e l'errore passerebbe
+/// inosservato lasciando la mappa vuota (tutti i prezzi a 0). Un listino ha al
+/// massimo ~qualche centinaio di righe: le prendiamo tutte e mappiamo in RAM.
+async function pricesForList(
   supabase: ReturnType<typeof createAdminClient>,
   priceListId: string | null,
-  wineIds: string[],
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  if (!priceListId || wineIds.length === 0) return map;
-  const { data } = await supabase
+  if (!priceListId) return map;
+  const { data, error } = await supabase
     .from("wine_prices")
     .select("wine_id, price")
-    .eq("price_list_id", priceListId)
-    .in("wine_id", wineIds);
+    .eq("price_list_id", priceListId);
+  if (error) throw error;
   for (const r of (data ?? []) as Array<{ wine_id: string; price: string | number }>) {
     map.set(r.wine_id, Number(r.price));
   }
@@ -117,11 +120,7 @@ export async function listRestaurantInventory(
   // wines.price (colonna legacy ~0 non più sincronizzata).
   const rows = (data ?? []) as Array<Record<string, unknown>>;
   const priceListId = await resolvePriceListId(supabase, restaurantId);
-  const priceMap = await pricesByWine(
-    supabase,
-    priceListId,
-    rows.map((r) => r.wine_id as string),
-  );
+  const priceMap = await pricesForList(supabase, priceListId);
 
   return rows.map((r) => {
     const w = r.wines as Record<string, unknown> | null;
@@ -162,7 +161,7 @@ export async function listCatalogWines(
   if (error) throw error;
   const rows = (data ?? []) as Array<Record<string, unknown>>;
   const priceListId = await resolvePriceListId(supabase, restaurantId);
-  const priceMap = await pricesByWine(supabase, priceListId, rows.map((w) => w.id as string));
+  const priceMap = await pricesForList(supabase, priceListId);
   return rows.map((w) => ({
     id: w.id as string,
     legacyId: (w.legacy_id as string) ?? null,
