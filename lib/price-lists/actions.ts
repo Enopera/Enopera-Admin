@@ -9,16 +9,6 @@ export type ActionResult =
   | { ok: true; message?: string; id?: string }
   | { ok: false; error: string };
 
-/// Triggera in sequenza le due Edge Function di sync con Starty:
-///   1. sync-starty-pricelists (~1.5s) — rinfresca l'elenco listini di vendita
-///   2. sync-starty-catalog    (~50s)  — rinfresca vini + prezzi per ogni
-///      listino con starty_id valorizzato
-///
-/// L'ordine è importante: la sync del catalogo popola wine_prices solo per
-/// i listini Supabase che hanno starty_id. Se prima non importo i listini
-/// nuovi, i loro prezzi non vengono salvati.
-///
-/// Tempo totale: ~52 secondi. La pagina deve avere maxDuration >= 60s.
 async function callEdgeFn(slug: string): Promise<{ ok: true; body: any } | { ok: false; error: string }> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -41,24 +31,40 @@ async function callEdgeFn(slug: string): Promise<{ ok: true; body: any } | { ok:
   }
 }
 
+/// Aggiorna i dati da Starty in due fasi, disaccoppiate per non sforare il
+/// timeout della server action di Vercel (cap 60s):
+///
+///   1. sync-starty-pricelists (~2s) — eseguito in modo SINCRONO: rinfresca subito
+///      l'elenco listini. DEVE precedere il catalogo, che mappa wine_prices solo
+///      sui price_lists con starty_id (un listino nuovo non importato perderebbe i
+///      suoi prezzi).
+///   2. sync-starty-catalog (~50s, vini + prezzi) — ACCODATO via pg_net (RPC
+///      queue_starty_catalog_sync) e NON atteso: gira su Supabase indipendentemente
+///      da Vercel. Senza questo, la catena ~52s veniva uccisa a 60s e il browser
+///      mostrava "An unexpected response was received from the server" (anche se i
+///      dati venivano comunque scritti). Il catalogo, essendo rate-limited da Starty
+///      (~817 chiamate pricing, non comprimibili), non puo' stare sotto i 60s.
+///
+/// La pagina riflette i prezzi nuovi al ricaricamento (~1 min dopo).
 export async function syncAllFromStarty(): Promise<ActionResult> {
-  // 1. Listini
+  // 1. Listini (sincrono, veloce)
   const listini = await callEdgeFn("sync-starty-pricelists");
   if (!listini.ok) return { ok: false, error: `Sync listini: ${listini.error}` };
 
-  // 2. Catalogo (vini + prezzi)
-  const catalog = await callEdgeFn("sync-starty-catalog");
-  if (!catalog.ok) return { ok: false, error: `Sync catalogo: ${catalog.error}` };
+  // 2. Catalogo (asincrono, fire-and-forget su Supabase)
+  const supabase = createAdminClient();
+  const { error: queueErr } = await supabase.rpc("queue_starty_catalog_sync");
+  if (queueErr) return { ok: false, error: `Avvio sync catalogo: ${queueErr.message}` };
 
   revalidatePath(PATH);
   revalidatePath("/ristoranti");
 
   const newLists = listini.body.new_imported ?? 0;
-  const wines = catalog.body.wines_synced ?? 0;
-  const prices = catalog.body.wine_prices_upserted ?? 0;
   return {
     ok: true,
-    message: `Sincronizzati ${newLists} nuovi listini, ${wines} vini, ${prices} prezzi`,
+    message:
+      `Listini aggiornati (${newLists} nuovi). Catalogo vini + prezzi in aggiornamento ` +
+      `in background (~1 min): la pagina si ricarica da sola, oppure ricaricala tra poco.`,
   };
 }
 

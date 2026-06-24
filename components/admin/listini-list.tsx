@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ADM } from "@/lib/admin/tokens";
 import { AdmIcons } from "@/lib/admin/icons";
 import { AdmBtn } from "@/lib/admin/primitives";
@@ -18,6 +19,7 @@ import {
 
 export function ListiniList({ priceLists }: { priceLists: AdminPriceList[] }) {
   const isMobile = useIsMobile();
+  const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
   const [syncing, startSyncTransition] = useTransition();
   const [syncFeedback, setSyncFeedback] = useState<ActionResult | null>(null);
@@ -45,10 +47,13 @@ export function ListiniList({ priceLists }: { priceLists: AdminPriceList[] }) {
               startSyncTransition(async () => {
                 const res = await syncAllFromStarty();
                 setSyncFeedback(res);
+                // Il catalogo (vini + prezzi) gira in background ~50s su Supabase:
+                // ricarico i dati della pagina quando dovrebbe aver finito.
+                if (res.ok) setTimeout(() => router.refresh(), 75000);
               });
             }}
           >
-            {syncing ? "Sincronizzazione in corso (~1 min)…" : "Aggiorna da Starty"}
+            {syncing ? "Aggiornamento listini…" : "Aggiorna da Starty"}
           </AdmBtn>
         }
       />
@@ -80,8 +85,9 @@ export function ListiniList({ priceLists }: { priceLists: AdminPriceList[] }) {
         fontStyle: "italic", lineHeight: 1.5,
       }}>
         I listini, i vini e i prezzi sono gestiti su Starty. Premi
-        &laquo;Aggiorna da Starty&raquo; per rinfrescare l&apos;elenco
-        listini + il catalogo (vini, prezzi). Operazione lunga ~1 minuto.
+        &laquo;Aggiorna da Starty&raquo;: l&apos;elenco listini si aggiorna
+        subito, mentre il catalogo (vini, prezzi) viene rinfrescato in
+        background (~1 minuto) e compare al ricaricamento della pagina.
       </div>
 
       <div style={{

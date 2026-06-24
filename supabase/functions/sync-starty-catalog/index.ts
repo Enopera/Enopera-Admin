@@ -89,6 +89,9 @@ async function fetchAllProducts(): Promise<any[]> {
   return fetchAllPaged("products", "products");
 }
 
+// NB: concorrenza = 10. Un esperimento a 20 NON ha ridotto la durata (~49s -> ~49s):
+// Starty throttla l'endpoint product-pricing lato server, quindi alzare la concorrenza
+// produce solo 429 (prezzi non rinfrescati quel run) senza guadagno di tempo.
 async function fetchPricingBatched(
   productIds: number[],
   concurrency = 10,
@@ -116,6 +119,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
   const startedAt = Date.now();
+  // Strumentazione temporanea: durata per fase, per capire dove vanno i ~49s.
+  const phases: Record<string, number> = {};
+  let _lap = Date.now();
+  const lap = (name: string) => { const n = Date.now(); phases[name] = n - _lap; _lap = n; };
   // Un solo timestamp per tutto il run: marker di "visto in questo sync".
   // I vini con last_synced_at < syncTs a fine run sono quelli non piu' in vendita.
   const syncTs = new Date().toISOString();
@@ -135,6 +142,7 @@ Deno.serve(async (req) => {
     for (const b of brandsAll) brandById.set(b.brandId, b.name);
     const categoryNameById = new Map<number, string>();
     for (const c of categoriesAll) categoryNameById.set(c.productCategoryId, c.name);
+    lap("anagrafiche");
 
     // 2. Mapping price_lists Supabase <- starty_id
     const { data: pls, error: plErr } = await supabase
@@ -149,6 +157,7 @@ Deno.serve(async (req) => {
     //     del prune (vedi step 5b).
     const { count: prevSold } = await supabase
       .from("wines").select("id", { count: "exact", head: true }).eq("is_sold", true);
+    lap("supabase_setup");
 
     // 3. Fetch prodotti + filtro
     const allProducts = await fetchAllProducts();
@@ -164,10 +173,12 @@ Deno.serve(async (req) => {
       if (p?.productId != null) productByStartyId.set(p.productId, p);
     }
     const uniqueProducts = Array.from(productByStartyId.values());
+    lap("products");
 
     // 4. Pricing per ognuno
     const productIds = uniqueProducts.map((p) => p.productId);
     const pricingByProductId = await fetchPricingBatched(productIds, 10);
+    lap("pricing");
 
     // 5. Upsert wines
     const wineRows = uniqueProducts.map((p) => {
@@ -201,6 +212,7 @@ Deno.serve(async (req) => {
         .upsert(chunk, { onConflict: "starty_product_id" });
       if (upsertErr) throw upsertErr;
     }
+    lap("upsert_wines");
 
     // 5b. Prune ("potatura"): delista (is_sold=false) i vini di origine Starty NON presenti
     //     nel set in-vendita di questo run (prodotti rimossi da Starty o passati a sold=false).
@@ -229,6 +241,7 @@ Deno.serve(async (req) => {
       if (pruneErr) throw pruneErr;
       winesDelisted = delisted?.length ?? 0;
     }
+    lap("prune");
 
     // 6. Mappo starty_product_id -> wine.id
     const wineUuidByStarty = new Map<number, string>();
@@ -286,11 +299,13 @@ Deno.serve(async (req) => {
         if (pErr) throw pErr;
       }
     }
+    lap("prices");
 
     return new Response(
       JSON.stringify({
         ok: true,
         elapsed_ms: Date.now() - startedAt,
+        phases,
         starty_products_total: allProducts.length,
         starty_products_filtered: filtered.length,
         brands_total: brandsAll.length,
