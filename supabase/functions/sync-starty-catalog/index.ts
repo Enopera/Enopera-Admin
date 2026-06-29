@@ -51,7 +51,21 @@ function mapType(categoryName: string | undefined): string {
   return "Rosso";
 }
 
-async function startyGet(path: string): Promise<any> {
+// Deadline globale per i retry: oltre questo istante (epoch ms) startyGet NON
+// ri-tenta piu' i 429, per non sforare il wall-clock limit della edge function.
+// Settato a inizio richiesta. 0 = nessun limite (non dovrebbe accadere).
+let retryDeadlineMs = 0;
+
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+// GET su Starty con retry+backoff sui 429 (Starty throttla, in particolare
+// product-pricing). PRIMA: i 429 venivano ingoiati (fetchPricingBatched -> [])
+// e il prodotto restava SENZA prezzo per quel run -> 0 nel catalogo finche' non
+// ri-sincronizzato; un prodotto throttlato a ogni run restava a 0 per sempre
+// (es. GEWURZTRAMINER PUNTAY 2024). ORA: honor Retry-After (sec), altrimenti
+// backoff esponenziale; cap sui tentativi e sul deadline globale cosi' il run
+// non si allunga oltre il limite della function.
+async function startyGet(path: string, _retry = 0): Promise<any> {
   const tenant = Deno.env.get("STARTY_TENANT");
   const token = Deno.env.get("STARTY_TOKEN");
   if (!tenant || !token) throw new Error("STARTY_TENANT / STARTY_TOKEN mancanti nei secret");
@@ -60,6 +74,18 @@ async function startyGet(path: string): Promise<any> {
     method: "GET", // SOLO GET
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (r.status === 429 && _retry < 6) {
+    const ra = Number(r.headers.get("retry-after"));
+    const waitMs = Number.isFinite(ra) && ra > 0
+      ? Math.min(ra * 1000, 10_000)
+      : Math.min(1000 * 2 ** _retry, 10_000);
+    // Ritenta solo se rientriamo nel deadline globale (altrimenti lascia fallire:
+    // il chiamante degrada a "nessun prezzo questo run" senza rompere il sync).
+    if (retryDeadlineMs === 0 || Date.now() + waitMs < retryDeadlineMs) {
+      await sleep(waitMs);
+      return startyGet(path, _retry + 1);
+    }
+  }
   if (!r.ok) {
     const body = await r.text().catch(() => "");
     throw new Error(`Starty ${r.status} ${path}: ${body.slice(0, 300)}`);
@@ -91,7 +117,9 @@ async function fetchAllProducts(): Promise<any[]> {
 
 // NB: concorrenza = 10. Un esperimento a 20 NON ha ridotto la durata (~49s -> ~49s):
 // Starty throttla l'endpoint product-pricing lato server, quindi alzare la concorrenza
-// produce solo 429 (prezzi non rinfrescati quel run) senza guadagno di tempo.
+// produce solo 429 (prezzi non rinfrescati quel run) senza guadagno di tempo. I 429
+// ora vengono ritentati con backoff dentro startyGet (vedi sopra), quindi il fallback
+// a [] scatta solo se il throttling persiste oltre i retry / il deadline globale.
 async function fetchPricingBatched(
   productIds: number[],
   concurrency = 10,
@@ -119,6 +147,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
   const startedAt = Date.now();
+  // I retry sui 429 si fermano a 100s dall'avvio: lascia margine (sotto il wall-clock
+  // limit della function) per upsert wines/prezzi e prune che vengono dopo.
+  retryDeadlineMs = startedAt + 100_000;
   // Strumentazione temporanea: durata per fase, per capire dove vanno i ~49s.
   const phases: Record<string, number> = {};
   let _lap = Date.now();
@@ -181,6 +212,11 @@ Deno.serve(async (req) => {
     lap("pricing");
 
     // 5. Upsert wines
+    // INVARIANTE CRITICA (vedi CLAUDE.md "Sync StartyERP"): il payload UPSERT deve
+    // includere SOLO i campi anagrafici/operativi qui sotto. NON aggiungere MAI
+    // grape, region, abv, notes, pairing: sono curati a mano dall'admin in /vini e
+    // l'upsert by-omission li preserva. Aggiungerli azzererebbe 800+ vini a mano al
+    // primo sync notturno.
     const wineRows = uniqueProducts.map((p) => {
       const catName = categoryNameById.get(p.productCategoryId);
       const producer = brandById.get(p.brandId) ?? null;

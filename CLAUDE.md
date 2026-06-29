@@ -99,7 +99,7 @@ Lo spec OpenAPI di Starty è in `_starty-spec.json` (gitignored — chiedi se se
 
 ## Sync StartyERP — invariante critico
 
-La Edge Function `sync-starty-catalog` (slug attivo lato Supabase, non tracciata nel repo locale: vedi note in plan 2026-05-27-admin-vini-section.md) gira ogni notte via pg_cron e fa UPSERT su `public.wines`.
+La Edge Function `sync-starty-catalog` (sorgente ora tracciata in `supabase/functions/sync-starty-catalog/index.ts`; deploy via `npx supabase functions deploy sync-starty-catalog --project-ref vguueimgbngnjgoockge`) gira ogni notte via pg_cron e fa UPSERT su `public.wines` + `public.wine_prices`.
 
 **Il payload UPSERT deve includere SOLO i campi anagrafici/operativi:**
 `starty_product_id, code, sku, upc, name, producer, type, vintage, uom_id, units_per_package, is_stocked, lot_managed, is_sold, active, last_synced_at`
@@ -109,7 +109,9 @@ La Edge Function `sync-starty-catalog` (slug attivo lato Supabase, non tracciata
 
 Questi cinque campi sono curati a mano dall'admin nella pagina `/vini`. L'`.upsert()` di Supabase aggiorna solo le colonne presenti nel payload (UPSERT by-omission), quindi finché non vengono mai aggiunti al `wineRows.map(...)`, i valori curati dall'admin sono preservati automaticamente. **Aggiungere uno qualsiasi di questi cinque campi al payload azzererebbe gli 800+ vini popolati dall'admin al primo sync notturno.**
 
-Se in futuro il source del sync viene importato nel repo, copiare questo commento sopra il blocco `wineRows.map(...)` come guard rail aggiuntivo a livello di codice.
+Il source è ora nel repo e questo guard rail è già commentato sopra il blocco `wineRows.map(...)` in `index.ts`. Tienilo lì.
+
+**Prezzi a 0 / 429 throttling:** `indSpedizioneId`-style aside — la fase prezzi chiama `product-pricing` per ogni prodotto; Starty throttla quell'endpoint. `startyGet` ora ritenta i 429 con backoff (honor `Retry-After`) entro un deadline globale (~100s): senza retry i prodotti throttlati restavano senza riga `wine_prices` → 0€ nel catalogo (e ordinabili a 0). Se vedi vini sellable a 0, controlla `wine_prices` vs `GET /v3/product-pricing?productId=X`: se Starty ha il prezzo ma noi no è un miss del sync (ri-sincronizza); se `priceListPrices` è vuoto il prezzo va messo su Starty.
 
 ## Tooling / convenzioni
 
