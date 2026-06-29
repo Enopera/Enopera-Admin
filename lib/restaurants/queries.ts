@@ -89,6 +89,8 @@ export async function listRestaurants(): Promise<AdminRestaurant[]> {
     email:           (r.email             as string) ?? null,
     phone:           (r.phone             as string) ?? null,
     startyBpId:      (r.starty_bp_id      as number) ?? null,
+    startyShipLocationId: (r.starty_ship_location_id as number) ?? null,
+    startyBillLocationId: (r.starty_bill_location_id as number) ?? null,
     memberSinceYear: (r.member_since_year as number) ?? null,
     notes:           (r.notes             as string) ?? null,
     freeShipping:    (r.free_shipping     as boolean | null) ?? false,

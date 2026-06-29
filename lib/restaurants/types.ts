@@ -28,6 +28,10 @@ export interface AdminRestaurant {
   email: string | null;
   phone: string | null;
   startyBpId: number | null;
+  /// businessPartnerLocationId scelto per la spedizione (indSpedizioneId su Starty).
+  startyShipLocationId: number | null;
+  /// businessPartnerLocationId scelto per la fatturazione (indFatturazioneId su Starty).
+  startyBillLocationId: number | null;
   memberSinceYear: number | null;
   notes: string | null;
   freeShipping: boolean;
@@ -69,6 +73,32 @@ export interface RestaurantUserPreview {
   whatsappRemindersEnabled: boolean;
   /// Timestamp consenso (ISO) o null.
   whatsappConsentAt: string | null;
+}
+
+// ───────── Collegamento BP Starty (ricerca + location) ─────────
+
+/// Una location (sede) di un Business Partner Starty, come ritornata
+/// dall'edge function `starty-bp-search`. `id` = businessPartnerLocationId.
+export interface StartyBpLocation {
+  id: number;
+  name: string;
+  address: string;
+  city: string;
+  postalCode: string;
+  countryId: number | null;
+  billTo: boolean;
+  shipTo: boolean;
+}
+
+/// Un Business Partner Starty compatto. In modalità ricerca (`?q=`) `locations`
+/// è vuoto; in modalità singolo (`?bpId=`) contiene le sedi.
+export interface StartyBp {
+  businessPartnerId: number;
+  name: string;
+  /// P.IVA normalizzata a 11 cifre (o codice fiscale grezzo se non normalizzabile).
+  taxId: string | null;
+  city: string;
+  locations: StartyBpLocation[];
 }
 
 /// Sottoinsieme di AdminUser sufficiente per il dropdown "Aggiungi utente"

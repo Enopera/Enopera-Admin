@@ -12,6 +12,8 @@ import type {
   DeliverySlot,
   DeliverySlotTime,
   RestaurantUserPreview,
+  StartyBp,
+  StartyBpLocation,
   UnlinkedUserOption,
 } from "@/lib/restaurants/types";
 import type { PriceListOption } from "@/lib/price-lists/types";
@@ -27,6 +29,8 @@ import {
   updateRestaurant,
   deleteRestaurant,
   setUserRestaurant,
+  searchStartyBp,
+  getStartyBp,
   type ActionResult,
   type RestaurantInput,
 } from "@/lib/restaurants/actions";
@@ -342,6 +346,8 @@ function RestaurantModal({
     email:           restaurant.email,
     phone:           restaurant.phone,
     startyBpId:      restaurant.startyBpId,
+    startyShipLocationId: restaurant.startyShipLocationId,
+    startyBillLocationId: restaurant.startyBillLocationId,
     memberSinceYear: restaurant.memberSinceYear,
     notes:           restaurant.notes,
     freeShipping:    restaurant.freeShipping,
@@ -485,14 +491,7 @@ function RestaurantModal({
                 <Input value={form.phone ?? ""} onChange={(v) => setForm({ ...form, phone: v })} />
               </Field>
             </Row2>
-            <Field label="StartyERP BP ID">
-              <Input
-                value={form.startyBpId?.toString() ?? ""}
-                onChange={(v) => setForm({ ...form, startyBpId: parseIntOrNull(v) })}
-                mono
-                placeholder="Es. 1000123"
-              />
-            </Field>
+            <StartySection form={form} setForm={setForm} />
             <Field label="Note interne">
               <Textarea value={form.notes ?? ""} onChange={(v) => setForm({ ...form, notes: v })} />
             </Field>
@@ -923,6 +922,8 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
     email: "",
     phone: "",
     startyBpId: null,
+    startyShipLocationId: null,
+    startyBillLocationId: null,
     memberSinceYear: null,
     notes: "",
     freeShipping: false,
@@ -1036,13 +1037,7 @@ function CreateRestaurantModal({ shippingConfig, onClose }: { shippingConfig: Sh
               <Input value={form.phone ?? ""} onChange={(v) => setForm({ ...form, phone: v })} />
             </Field>
           </Row2>
-          <Field label="StartyERP BP ID">
-            <Input
-              value={form.startyBpId?.toString() ?? ""}
-              onChange={(v) => setForm({ ...form, startyBpId: parseIntOrNull(v) })}
-              mono
-            />
-          </Field>
+          <StartySection form={form} setForm={setForm} />
           <Field label="Note interne">
             <Textarea value={form.notes ?? ""} onChange={(v) => setForm({ ...form, notes: v })} />
           </Field>
@@ -1580,6 +1575,299 @@ function ShippingOverrideFields({
       <div style={{ fontSize: 11, color: ADM.inkSoft, marginTop: 2, lineHeight: 1.4, fontFamily: ADM.sans }}>
         Lascia vuoto per usare i valori globali. L&apos;override vale solo per questo ristorante.
       </div>
+    </div>
+  );
+}
+
+// ───────── Collegamento Starty (ricerca BP + sedi spedizione/fatturazione) ─────────
+
+// Normalizza una P.IVA a 11 cifre (toglie prefisso "IT" e ogni non-cifra).
+function normVat(taxId: string | null | undefined): string {
+  const d = (taxId ?? "").replace(/\D/g, "");
+  return d.length > 11 ? d.slice(-11) : d;
+}
+
+// Preselezione "se unica": una sola sede col flag richiesto → quella; altrimenti,
+// se il BP ha un'unica sede in assoluto → quella; altrimenti nessuna.
+function defaultLocationId(locs: StartyBpLocation[], kind: "ship" | "bill"): number | null {
+  const flagged = locs.filter((l) => (kind === "ship" ? l.shipTo : l.billTo));
+  if (flagged.length === 1) return flagged[0].id;
+  if (locs.length === 1) return locs[0].id;
+  return null;
+}
+
+function locLabel(l: StartyBpLocation): string {
+  const head = l.name || l.address || `Sede ${l.id}`;
+  return [head, l.city].filter(Boolean).join(" · ");
+}
+
+function LocationSelect({
+  locations, value, onChange,
+}: {
+  locations: StartyBpLocation[];
+  value: number | null;
+  onChange: (id: number | null) => void;
+}) {
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+      style={{
+        width: "100%", padding: "8px 10px", border: `1px solid ${ADM.line}`, borderRadius: 6,
+        background: ADM.white, fontFamily: ADM.sans, fontSize: 13, color: ADM.ink, cursor: "pointer",
+      }}
+    >
+      <option value="">— Default Starty —</option>
+      {locations.map((l) => (
+        <option key={l.id} value={l.id}>{locLabel(l)}</option>
+      ))}
+    </select>
+  );
+}
+
+// Sezione del form ristorante: cerca un BP Starty (P.IVA/nome), lo collega,
+// sceglie le sedi di spedizione/fatturazione e auto-compila i campi (modificabili).
+// Sostituisce il vecchio campo testo libero "StartyERP BP ID".
+function StartySection({
+  form, setForm,
+}: {
+  form: RestaurantInput;
+  setForm: (f: RestaurantInput) => void;
+}) {
+  const [bp, setBp] = useState<StartyBp | null>(null);
+  const [loadingBp, setLoadingBp] = useState(false);
+  const [bpError, setBpError] = useState<string | null>(null);
+
+  const [searchOpen, setSearchOpen] = useState(form.startyBpId == null);
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<StartyBp[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  // All'apertura di un ristorante già collegato ricarica le sedi del BP per
+  // popolare i selettori (in DB abbiamo solo gli id, non i nomi delle location).
+  useEffect(() => {
+    const id = form.startyBpId;
+    if (id == null) return;
+    let cancelled = false;
+    setLoadingBp(true);
+    setBpError(null);
+    getStartyBp(id).then((res) => {
+      if (cancelled) return;
+      if (res.ok) setBp(res.results[0] ?? null);
+      else setBpError(res.error);
+      setLoadingBp(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runSearch = () => {
+    if (!query.trim()) return;
+    setSearchError(null);
+    setResults(null);
+    setSearching(true);
+    searchStartyBp(query).then((res) => {
+      if (res.ok) setResults(res.results);
+      else setSearchError(res.error);
+      setSearching(false);
+    });
+  };
+
+  // Sceglie un BP dalla lista: ricarica con le sedi e auto-compila i campi.
+  const pickBp = (bpId: number) => {
+    setBpError(null);
+    setLoadingBp(true);
+    getStartyBp(bpId).then((res) => {
+      setLoadingBp(false);
+      if (!res.ok) { setBpError(res.error); return; }
+      const full = res.results[0];
+      if (!full) { setBpError("BP non trovato su Starty"); return; }
+      setBp(full);
+      const shipId = defaultLocationId(full.locations, "ship");
+      const billId = defaultLocationId(full.locations, "bill");
+      const shipLoc = full.locations.find((l) => l.id === shipId) ?? null;
+      const billLoc = full.locations.find((l) => l.id === billId) ?? null;
+      setForm({
+        ...form,
+        startyBpId: full.businessPartnerId,
+        startyShipLocationId: shipId,
+        startyBillLocationId: billId,
+        ragioneSociale: full.name || form.ragioneSociale,
+        vat: normVat(full.taxId) || form.vat,
+        address: shipLoc ? (shipLoc.address || form.address) : form.address,
+        city: shipLoc ? (shipLoc.city || form.city) : form.city,
+        billingAddress: billLoc ? (billLoc.address || form.billingAddress) : form.billingAddress,
+        billingCity: billLoc ? (billLoc.city || form.billingCity) : form.billingCity,
+      });
+      setSearchOpen(false);
+      setResults(null);
+      setQuery("");
+    });
+  };
+
+  // Cambio sede dal selettore: aggiorna l'id e auto-compila l'indirizzo collegato.
+  const onShipChange = (id: number | null) => {
+    const loc = bp?.locations.find((l) => l.id === id) ?? null;
+    setForm({
+      ...form,
+      startyShipLocationId: id,
+      address: loc?.address || form.address,
+      city: loc?.city || form.city,
+    });
+  };
+  const onBillChange = (id: number | null) => {
+    const loc = bp?.locations.find((l) => l.id === id) ?? null;
+    setForm({
+      ...form,
+      startyBillLocationId: id,
+      billingAddress: loc?.address || form.billingAddress,
+      billingCity: loc?.city || form.billingCity,
+    });
+  };
+
+  const unlink = () => {
+    setBp(null);
+    setForm({ ...form, startyBpId: null, startyShipLocationId: null, startyBillLocationId: null });
+    setSearchOpen(true);
+    setResults(null);
+  };
+
+  const linked = form.startyBpId != null;
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${ADM.line}` }}>
+      <div style={{
+        fontSize: 11, color: ADM.inkMuted, letterSpacing: 0.6,
+        textTransform: "uppercase", fontFamily: ADM.sans, marginBottom: 10,
+      }}>
+        Collegamento Starty
+      </div>
+
+      {linked ? (
+        <div style={{
+          padding: "10px 12px", borderRadius: 6,
+          background: ADM.panelAlt, border: `1px solid ${ADM.line}`,
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+        }}>
+          <span style={{ color: ADM.green, display: "flex", flexShrink: 0 }}>{AdmIcons.check(16)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontFamily: ADM.sans, fontSize: 10.5, color: ADM.inkSoft,
+              letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 600,
+            }}>BP Starty collegato</div>
+            <div style={{
+              fontFamily: ADM.serif, fontSize: 15, color: ADM.ink, fontWeight: 600, marginTop: 1,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {loadingBp && !bp ? "Caricamento…" : (bp?.name || "—")}{" "}
+              <span style={{ fontFamily: ADM.mono, fontSize: 12, color: ADM.inkSoft, fontWeight: 400 }}>
+                · id {form.startyBpId}
+              </span>
+            </div>
+          </div>
+          <AdmBtn kind="secondary" size="sm" onClick={() => setSearchOpen((v) => !v)}>
+            {searchOpen ? "Annulla" : "Cambia"}
+          </AdmBtn>
+          <AdmBtn kind="ghost" size="sm" onClick={unlink}>Scollega</AdmBtn>
+        </div>
+      ) : (
+        <div style={{
+          fontFamily: ADM.sans, fontSize: 12.5, color: ADM.inkSoft, marginBottom: 10, lineHeight: 1.4,
+        }}>
+          Nessun BP Starty collegato. Cerca per P.IVA o nome per collegarlo e auto-compilare i dati.
+        </div>
+      )}
+
+      {bpError && (
+        <div style={{
+          padding: "8px 12px", borderRadius: 6, marginBottom: 10,
+          background: ADM.redWash, color: ADM.red, fontFamily: ADM.sans, fontSize: 12.5,
+          border: `1px solid ${ADM.red}33`,
+        }}>{bpError}</div>
+      )}
+
+      {(searchOpen || !linked) && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runSearch(); } }}
+              placeholder="P.IVA (11 cifre) o nome…"
+              style={{
+                flex: 1, padding: "8px 10px", border: `1px solid ${ADM.line}`, borderRadius: 6,
+                background: ADM.white, fontFamily: ADM.sans, fontSize: 13, color: ADM.ink, outline: "none",
+              }}
+            />
+            <AdmBtn kind="primary" size="sm" icon={AdmIcons.search(14)} onClick={runSearch}>
+              {searching ? "Cerco…" : "Cerca su Starty"}
+            </AdmBtn>
+          </div>
+
+          {searchError && (
+            <div style={{
+              padding: "8px 12px", borderRadius: 6, marginTop: 8,
+              background: ADM.redWash, color: ADM.red, fontFamily: ADM.sans, fontSize: 12.5,
+              border: `1px solid ${ADM.red}33`,
+            }}>{searchError}</div>
+          )}
+
+          {results && results.length === 0 && !searching && (
+            <div style={{
+              fontFamily: ADM.serif, fontStyle: "italic", fontSize: 13, color: ADM.inkSoft, padding: "10px 2px",
+            }}>Nessun BP trovato.</div>
+          )}
+
+          {results && results.length > 0 && (
+            <div style={{ border: `1px solid ${ADM.line}`, borderRadius: 6, overflow: "hidden", marginTop: 8 }}>
+              {results.map((r, i) => (
+                <button
+                  key={r.businessPartnerId}
+                  type="button"
+                  onClick={() => pickBp(r.businessPartnerId)}
+                  disabled={loadingBp}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                    padding: "10px 12px", cursor: loadingBp ? "default" : "pointer",
+                    background: ADM.panel, border: "none",
+                    borderBottom: i < results.length - 1 ? `1px solid ${ADM.lineSoft}` : "none",
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontFamily: ADM.sans, fontSize: 13, fontWeight: 600, color: ADM.ink,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>{r.name || "—"}</div>
+                    <div style={{ fontFamily: ADM.sans, fontSize: 11.5, color: ADM.inkSoft }}>
+                      {[r.taxId, r.city].filter(Boolean).join(" · ") || `id ${r.businessPartnerId}`}
+                    </div>
+                  </div>
+                  <span style={{ fontFamily: ADM.mono, fontSize: 11, color: ADM.inkSoft, flexShrink: 0 }}>
+                    {r.businessPartnerId}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {linked && bp && bp.locations.length > 0 && (
+        <Row2>
+          <Field label="Sede spedizione">
+            <LocationSelect locations={bp.locations} value={form.startyShipLocationId ?? null} onChange={onShipChange} />
+          </Field>
+          <Field label="Sede fatturazione">
+            <LocationSelect locations={bp.locations} value={form.startyBillLocationId ?? null} onChange={onBillChange} />
+          </Field>
+        </Row2>
+      )}
+      {linked && bp && bp.locations.length === 0 && !loadingBp && (
+        <div style={{ fontFamily: ADM.sans, fontSize: 12, color: ADM.amber, lineHeight: 1.4 }}>
+          Questo BP non ha sedi su Starty: verrà usato l&apos;indirizzo di default.
+        </div>
+      )}
     </div>
   );
 }

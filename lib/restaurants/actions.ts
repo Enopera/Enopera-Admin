@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { DeliverySlot, DeliverySlotTimes } from "./types";
+import type { DeliverySlot, DeliverySlotTimes, StartyBp } from "./types";
 
 const PATH = "/ristoranti";
 
@@ -23,6 +23,8 @@ export interface RestaurantInput {
   email?: string | null;
   phone?: string | null;
   startyBpId?: number | null;
+  startyShipLocationId?: number | null;
+  startyBillLocationId?: number | null;
   memberSinceYear?: number | null;
   notes?: string | null;
   freeShipping: boolean;
@@ -50,6 +52,8 @@ function toRow(data: RestaurantInput): Record<string, unknown> {
   row.email             = (data.email             ?? "").trim() || null;
   row.phone             = (data.phone             ?? "").trim() || null;
   row.starty_bp_id      = data.startyBpId      ?? null;
+  row.starty_ship_location_id = data.startyShipLocationId ?? null;
+  row.starty_bill_location_id = data.startyBillLocationId ?? null;
   row.member_since_year = data.memberSinceYear ?? null;
   row.notes             = (data.notes             ?? "").trim() || null;
   row.free_shipping     = data.freeShipping;
@@ -147,4 +151,45 @@ export async function setUserRestaurant(
     ok: true,
     message: restaurantId ? "Utente collegato al ristorante" : "Utente scollegato",
   };
+}
+
+// ───────── Ricerca BP Starty (edge function starty-bp-search) ─────────
+
+export type StartyBpResult =
+  | { ok: true; results: StartyBp[] }
+  | { ok: false; error: string };
+
+/// Chiama l'edge function `starty-bp-search` (GET, query string). L'admin (Vercel)
+/// non ha il token Starty: la funzione lo legge dai secret. Auth via service-role key
+/// (JWT valido → passa `verify_jwt`). Pattern speculare a callEdgeFn dei listini.
+async function callBpSearch(params: Record<string, string>): Promise<StartyBpResult> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return { ok: false, error: "Config Supabase mancante" };
+  const qs = new URLSearchParams(params).toString();
+  try {
+    const r = await fetch(`${url}/functions/v1/starty-bp-search?${qs}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    const body = await r.json();
+    if (!r.ok || !body?.ok) {
+      return { ok: false, error: body?.error ?? `HTTP ${r.status}` };
+    }
+    return { ok: true, results: (body.results ?? []) as StartyBp[] };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/// Cerca BP su Starty per P.IVA (11 cifre) o nome. Risultati SENZA location.
+export async function searchStartyBp(q: string): Promise<StartyBpResult> {
+  if (!q?.trim()) return { ok: false, error: "Inserisci una P.IVA o un nome da cercare" };
+  return callBpSearch({ q: q.trim() });
+}
+
+/// Ricarica un singolo BP CON le location (per popolare i selettori spedizione/fatturazione).
+export async function getStartyBp(bpId: number): Promise<StartyBpResult> {
+  if (!bpId) return { ok: false, error: "Id BP mancante" };
+  return callBpSearch({ bpId: String(bpId) });
 }
