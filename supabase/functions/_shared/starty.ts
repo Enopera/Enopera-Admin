@@ -117,8 +117,8 @@ export interface StartyOrderIn {
   dateOrdered: string;        // YYYY-MM-DD
   poReference?: string;       // <- "Riferimento ordine" su Starty (ragione sociale). Max 20 char lato Starty.
   description?: string;       // <- "Nota cliente" (Order.description): usato per la nota cliente (orders.notes)
-  indFatturazioneId?: number; // <- "Indirizzo fatturazione": businessPartnerLocationId con billTo
-  indSpedizioneId?: number;   // <- "Indirizzo spedizione": businessPartnerLocationId con shipTo
+  indFatturazioneId?: number; // <- "Indirizzo fatturazione": C_Location id (location.locationId) della sede billTo
+  indSpedizioneId?: number;   // <- "Indirizzo spedizione": C_Location id (location.locationId) della sede shipTo
   orderLines: StartyOrderLineIn[];
 }
 
@@ -130,15 +130,18 @@ export interface StartyOrderOut extends StartyOrderIn {
 }
 
 // Indirizzo del business partner (sottoinsieme di BusinessPartnerLocation dello
-// spec OpenAPI). `businessPartnerLocationId` e' il valore atteso da
-// Order.indFatturazioneId / indSpedizioneId. I flag billTo/shipTo/default
-// servono a scegliere l'indirizzo corretto per fatturazione/spedizione.
+// spec OpenAPI). ATTENZIONE: il valore atteso da Order.indFatturazioneId /
+// indSpedizioneId NON è `businessPartnerLocationId` ma il C_Location id
+// (`location.locationId`). Usare il bpLocationId fa risolvere l'indirizzo su
+// record C_Location estranei (collisione di id-space → indirizzi esteri).
+// I flag billTo/shipTo/default servono a scegliere la sede corretta.
 export interface StartyBpLocation {
   businessPartnerLocationId: number;
   billTo?: boolean;
   shipTo?: boolean;
   default?: boolean;
   name?: string;
+  location?: { locationId?: number };
 }
 
 // Sottoinsieme di BusinessPartner: ci interessa solo la lista indirizzi.

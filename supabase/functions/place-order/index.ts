@@ -110,22 +110,25 @@ function escHtml(v: string): string {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// Seleziona l'ID indirizzo (businessPartnerLocationId) del BP per un ruolo.
+// Seleziona l'ID indirizzo del BP per un ruolo. Ritorna il C_Location id
+// (location.locationId): è QUELLO il valore atteso da Order.indSpedizioneId /
+// indFatturazioneId (verificato sulla UI nativa di Starty). NON usare
+// businessPartnerLocationId: cade su record C_Location estranei (indirizzi esteri).
 // Preferenza: flag esplicito (billTo|shipTo) -> indirizzo 'default' -> primo
-// con id valido. Ritorna null se la lista e' vuota/assente o nessun elemento
-// ha un id: in quel caso il chiamante NON valorizza il campo sull'ordine e
-// lascia il default del template Starty.
+// con C_Location id valido. Ritorna null se nessuna sede ha un locationId: in
+// quel caso il chiamante NON valorizza il campo e lascia il default del template.
 function pickBpLocation(
   locations: StartyBpLocation[] | null | undefined,
   flag: "billTo" | "shipTo",
 ): number | null {
   if (!locations?.length) return null;
-  const byFlag = locations.find((l) => l[flag] === true && l.businessPartnerLocationId);
-  if (byFlag) return byFlag.businessPartnerLocationId;
-  const byDefault = locations.find((l) => l.default === true && l.businessPartnerLocationId);
-  if (byDefault) return byDefault.businessPartnerLocationId;
-  const first = locations.find((l) => l.businessPartnerLocationId);
-  return first?.businessPartnerLocationId ?? null;
+  const locId = (l: StartyBpLocation) => l.location?.locationId ?? null;
+  const byFlag = locations.find((l) => l[flag] === true && locId(l));
+  if (byFlag) return locId(byFlag);
+  const byDefault = locations.find((l) => l.default === true && locId(l));
+  if (byDefault) return locId(byDefault);
+  const first = locations.find((l) => locId(l));
+  return first ? locId(first) : null;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -583,13 +586,13 @@ Deno.serve(async (req) => {
       // cosi' gli ordini senza nota restano byte-identici a prima.
       ...(body.notes ? { description: body.notes } : {}),
       // ── Indirizzi fatturazione/spedizione su Starty ──
-      // Order.indFatturazioneId / indSpedizioneId sono riferimenti numerici a
-      // BusinessPartnerLocation del BP (NON testo libero) — confermati sullo
-      // spec OpenAPI. Risolti sopra da GET /v3/business-partners/{id}:
-      // billTo -> fatturazione, shipTo -> spedizione (fallback: 'default', poi
-      // primo). Li valorizziamo SOLO se risolti; altrimenti lasciamo il default
-      // del template (...orderTemplate), cosi' un fetch BP fallito o un BP senza
-      // indirizzi mappati non peggiora mai l'ordine.
+      // Order.indFatturazioneId / indSpedizioneId sono riferimenti numerici a un
+      // C_Location (location.locationId), NON al businessPartnerLocationId: usare
+      // quest'ultimo faceva risolvere l'indirizzo su record C_Location estranei
+      // (bug indirizzi esteri, es. ALCI SNC -> Helsinki/Nagykanizsa). Valori
+      // dall'override del ristorante (form admin) oppure da pickBpLocation, che
+      // ora ritorna location.locationId. Li valorizziamo SOLO se risolti;
+      // altrimenti lasciamo il default del template (...orderTemplate).
       ...(billLocationId ? { indFatturazioneId: billLocationId } : {}),
       ...(shipLocationId ? { indSpedizioneId: shipLocationId } : {}),
       // Business defaults (vedi STARTY_*_DEFAULT in cima al file).

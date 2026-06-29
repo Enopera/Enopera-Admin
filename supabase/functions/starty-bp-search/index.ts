@@ -38,9 +38,16 @@ const onlyDigits = (s: string | null | undefined): string => (s ?? "").replace(/
 
 // deno-lint-ignore no-explicit-any
 function compactLocations(bp: any) {
+  // `id` = location.locationId (C_Location id). È QUESTO il valore atteso da
+  // Order.indSpedizioneId / indFatturazioneId su Starty (verificato: la UI
+  // nativa di Starty popola quei campi con il C_Location id, NON con il
+  // businessPartnerLocationId — usare quest'ultimo fa risolvere l'indirizzo su
+  // record C_Location estranei, es. esteri). bpLocationId resta esposto solo a
+  // scopo diagnostico.
   // deno-lint-ignore no-explicit-any
   return ((bp.locations ?? []) as any[]).map((l) => ({
-    id: l.businessPartnerLocationId,
+    id: l.location?.locationId ?? null,
+    bpLocationId: l.businessPartnerLocationId ?? null,
     name: (l.name ?? "").trim(),
     address: l.location?.address1 ?? "",
     city: l.location?.city ?? "",
