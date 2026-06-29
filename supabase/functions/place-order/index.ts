@@ -230,9 +230,8 @@ Deno.serve(async (req) => {
 
   if (!profile)                     return json({ error: "Profile non trovato" }, 403);
   if (profile.status !== "attivo")  return json({ error: "Account non attivo" }, 403);
-  if (!BYPASS_STARTY && !profile.starty_bp_id) {
-    return json({ error: "Account non collegato a un businessPartner Starty" }, 403);
-  }
+  // NB: il guard sul businessPartner è dopo il fetch del ristorante (il bp_id può
+  // venire dal ristorante, che è la fonte di verità — vedi effectiveBpId sotto).
 
   // Risolvi il listino prezzi del cliente: custom del ristorante o, in
   // mancanza, il default globale. Replica la stessa logica della RPC
@@ -245,10 +244,15 @@ Deno.serve(async (req) => {
   let restBillingAddress: string | null = null;
   let restBillingCity: string | null = null;
   let restBillingDistrict: string | null = null;
+  // Collegamento Starty: il RISTORANTE è la fonte di verità (bp_id + ID location
+  // spedizione/fatturazione da mandare come indSpedizioneId/indFatturazioneId).
+  let restStartyBpId: number | null = null;
+  let restShipLocationId: number | null = null;
+  let restBillLocationId: number | null = null;
   if (profile.restaurant_id) {
     const { data: rest } = await supabase
       .from("restaurants")
-      .select("price_list_id, ragione_sociale, billing_address, billing_city, billing_district")
+      .select("price_list_id, ragione_sociale, billing_address, billing_city, billing_district, starty_bp_id, starty_ship_location_id, starty_bill_location_id")
       .eq("id", profile.restaurant_id)
       .maybeSingle();
     restaurantPriceListId = (rest?.price_list_id as string | null) ?? null;
@@ -256,6 +260,19 @@ Deno.serve(async (req) => {
     restBillingAddress = (rest?.billing_address as string | null) ?? null;
     restBillingCity = (rest?.billing_city as string | null) ?? null;
     restBillingDistrict = (rest?.billing_district as string | null) ?? null;
+    restStartyBpId = (rest?.starty_bp_id as number | null) ?? null;
+    restShipLocationId = (rest?.starty_ship_location_id as number | null) ?? null;
+    restBillLocationId = (rest?.starty_bill_location_id as number | null) ?? null;
+  }
+
+  // Fonte UNICA per bp_id + location (mai mescolare): ristorante se collegato,
+  // altrimenti il profilo (con la vecchia euristica pickBpLocation).
+  const useRestaurantBp = !!(profile.restaurant_id && restStartyBpId);
+  const effectiveBpId = useRestaurantBp ? restStartyBpId : profile.starty_bp_id;
+  const shipLocOverride = useRestaurantBp ? restShipLocationId : null;
+  const billLocOverride = useRestaurantBp ? restBillLocationId : null;
+  if (!BYPASS_STARTY && !effectiveBpId) {
+    return json({ error: "Account non collegato a un businessPartner Starty" }, 403);
   }
   let priceListRow: { id: string; starty_id: number | null; name: string } | null = null;
   if (restaurantPriceListId) {
@@ -492,7 +509,7 @@ Deno.serve(async (req) => {
     // le righe via /v3/orders/lines/default. Le righe richiedono almeno
     // rowType="I" (Item) per non scattare "Non e' stato specificato un tipo riga".
     const defaultQuery = new URLSearchParams({
-      businessPartnerId: String(profile.starty_bp_id!),
+      businessPartnerId: String(effectiveBpId!),
       warehouseId: String(WAREHOUSE_ID),
       docTypeId: String(DOC_TYPE_ID),
     });
@@ -508,10 +525,10 @@ Deno.serve(async (req) => {
       [orderTemplate, lineTemplate, bp] = await Promise.all([
         startyFetch<Record<string, unknown>>(`/v3/orders/default?${defaultQuery}`),
         startyFetch<Record<string, unknown>>(`/v3/orders/lines/default`),
-        startyFetch<StartyBusinessPartner>(`/v3/business-partners/${profile.starty_bp_id!}`)
+        startyFetch<StartyBusinessPartner>(`/v3/business-partners/${effectiveBpId!}`)
           .catch((e) => {
             console.error(
-              `[place-order] fetch indirizzi BP fallito (non bloccante) per orderId=${orderId} bpId=${profile.starty_bp_id}: ${(e as Error).message}`,
+              `[place-order] fetch indirizzi BP fallito (non bloccante) per orderId=${orderId} bpId=${effectiveBpId}: ${(e as Error).message}`,
             );
             return null;
           }),
@@ -524,9 +541,11 @@ Deno.serve(async (req) => {
       return json({ error: "Inizializzazione ordine Starty fallita", detail }, 502);
     }
 
-    // Risolvi gli ID indirizzo per fatturazione e spedizione (vedi pickBpLocation).
-    const billLocationId = pickBpLocation(bpLocations, "billTo");
-    const shipLocationId = pickBpLocation(bpLocations, "shipTo");
+    // ID indirizzo fatturazione/spedizione: PRIMA l'override esplicito del ristorante
+    // (fonte di verità, scelto nel form admin); altrimenti l'euristica pickBpLocation
+    // sul BP (fallback per ristoranti non ancora collegati / profili senza ristorante).
+    const billLocationId = billLocOverride ?? pickBpLocation(bpLocations, "billTo");
+    const shipLocationId = shipLocOverride ?? pickBpLocation(bpLocations, "shipTo");
 
     // poReference = "Riferimento ordine" su Starty. Limite DURO di 20 caratteri
     // (dichiarato dallo spec: il valore viene propagato sulla fattura
@@ -551,7 +570,7 @@ Deno.serve(async (req) => {
 
     const orderIn = {
       ...orderTemplate,
-      businessPartnerId: profile.starty_bp_id!,
+      businessPartnerId: effectiveBpId!,
       warehouseId: WAREHOUSE_ID,
       docTypeId: DOC_TYPE_ID,
       dateOrdered: new Date().toISOString().slice(0, 19), // 'YYYY-MM-DDTHH:MM:SS' come da template
@@ -602,7 +621,7 @@ Deno.serve(async (req) => {
     } catch (e) {
       const detail = (e as Error).message;
       console.error(
-        `[place-order] POST /v3/orders failed for orderId=${orderId} bpId=${profile.starty_bp_id} warehouseId=${WAREHOUSE_ID} docTypeId=${DOC_TYPE_ID}: ${detail}`,
+        `[place-order] POST /v3/orders failed for orderId=${orderId} bpId=${effectiveBpId} warehouseId=${WAREHOUSE_ID} docTypeId=${DOC_TYPE_ID}: ${detail}`,
       );
       await supabase.from("orders").update({ status: "failed_internal" }).eq("id", orderId);
       return json(
