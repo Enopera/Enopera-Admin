@@ -77,9 +77,61 @@ Deno.serve(async () => {
       }
     }
 
+    // Backfill 0-rows: i vini ordinabili e stoccati (is_sold + active + is_stocked)
+    // ASSENTI dal feed /v3/stock non hanno alcuna riga wine_stock -> l'app li
+    // tratta come "disponibilità sconosciuta" e li lascia ordinare SENZA limite
+    // (bug: es. CHAMPAGNE REMENSIS 2020 prod 24568, fuori feed, ordinabile all'infinito).
+    // Scriviamo per loro una riga a 0 (lot 0) cosi' l'app li cappa a 0 ("esaurito"),
+    // coerente con i prodotti a 0 che SONO nel feed. Self-healing: se tornano in
+    // giacenza, il loop principale sovrascrive la riga col valore reale.
+    // GUARDIA anti-wipe: salta se il feed e' sospettosamente corto (probabile
+    // risposta parziale di Starty) per non azzerare in massa vini legittimi.
+    let zeroBackfilled = 0;
+    let backfillSkipped: string | null = null;
+    const STOCK_FEED_MIN = 700; // feed sano ~1091; sotto = sospetto
+    if (rows.length < STOCK_FEED_MIN) {
+      backfillSkipped = `stockList=${rows.length} < ${STOCK_FEED_MIN}: feed sospetto, backfill 0 saltato`;
+      console.warn(`[sync-stock] ${backfillSkipped}`);
+    } else {
+      const present = new Set(rows.map((r) => r.productId));
+      const { data: sellable, error: sellErr } = await supabase
+        .from("wines")
+        .select("id, starty_product_id")
+        .eq("active", true).eq("is_sold", true).eq("is_stocked", true)
+        .not("starty_product_id", "is", null);
+      if (sellErr) throw sellErr;
+      const absent = (sellable ?? []).filter(
+        (w) => !present.has(w.starty_product_id as number),
+      );
+      if (absent.length > 0) {
+        const nowIso = new Date().toISOString();
+        const zeroRows = absent.map((w) => ({
+          wine_id: w.id,
+          starty_product_id: w.starty_product_id,
+          warehouse_id: WAREHOUSE_ID,
+          warehouse_name: null,
+          lot_id: 0,
+          lot_name: null,
+          lot_expiry_date: null,
+          qty_on_hand: 0,
+          qty_reserved: 0,
+          qty_ordered: 0,
+          qty_available: 0,
+          last_synced_at: nowIso,
+        }));
+        const { error: bfErr } = await supabase
+          .from("wine_stock")
+          .upsert(zeroRows, { onConflict: "wine_id,warehouse_id,lot_id" });
+        if (bfErr) throw bfErr;
+        zeroBackfilled = zeroRows.length;
+      }
+    }
+
     return Response.json({
       ok: true,
       total: rows.length, upserted, missing_wines: missing,
+      zero_backfilled: zeroBackfilled,
+      backfill_skipped: backfillSkipped,
       firstError,
       durationMs: Date.now() - startedAt,
     });
