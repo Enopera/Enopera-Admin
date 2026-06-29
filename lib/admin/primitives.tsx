@@ -135,7 +135,10 @@ export const initials = (name: string) =>
   name.split(" ").slice(0, 2).map((w) => w[0]).join("");
 
 export const fmtEUR = (n: number) =>
-  new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+  new Intl.NumberFormat("it-IT", {
+    style: "currency", currency: "EUR",
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(n);
 
 export const wineSwatch = (type: string) =>
   type === "Bianco" ? "#e8d68a"
