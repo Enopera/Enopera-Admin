@@ -5,9 +5,12 @@ import "server-only";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
-// Link al test interno dell'app Enopera su Google Play (traccia interna).
-// TEMPORANEAMENTE NON usato nell'email: Play Store in revisione. Riattivare il
-// pulsante "Android (Google Play)" in buildInviteHtml quando l'app e' pubblica.
+// Link pubblico Google Play dell'app Enopera (Android). App pubblicata.
+export const APP_PLAYSTORE_URL =
+  "https://play.google.com/store/apps/details?id=it.enopera.portal&hl=it";
+
+// Link al test interno su Google Play (traccia interna). Ora l'app e' pubblica:
+// nell'email si usa APP_PLAYSTORE_URL. Tenuto solo per riferimento.
 export const APP_INTERNAL_TEST_URL =
   "https://play.google.com/apps/internaltest/4701671619788335871";
 
@@ -32,6 +35,7 @@ export async function sendInviteEmail(params: {
     restaurantName: params.restaurantName,
     loginEmail: params.to,
     actionLink: params.actionLink,
+    androidUrl: APP_PLAYSTORE_URL,
     iosUrl: APP_APPSTORE_URL,
   });
 
@@ -71,6 +75,7 @@ function buildInviteHtml(p: {
   restaurantName: string | null;
   loginEmail: string;
   actionLink: string;
+  androidUrl: string;
   iosUrl: string;
 }): string {
   const restaurantRow = p.restaurantName
@@ -149,9 +154,19 @@ function buildInviteHtml(p: {
                 <p style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:13px; line-height:1.6; color:#6b5a5c;"><strong style="color:#2a1a1d;">2.</strong> Scarica l'app Enopera sul tuo telefono:</p>
               </td>
             </tr>
-            <!-- Pulsante "Android (Google Play)" temporaneamente rimosso: Play Store in revisione. Ripristinare (con APP_INTERNAL_TEST_URL / link pubblico) quando l'app e' pubblica. -->
             <tr>
-              <td align="center" style="padding:4px 32px 12px 32px;">
+              <td align="center" style="padding:4px 32px 6px 32px;">
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="center" style="border:1px solid #7a1a2c; border-radius:8px;">
+                      <a href="${p.androidUrl}" target="_blank" style="display:inline-block; padding:12px 24px; font-family:Arial,Helvetica,sans-serif; font-size:14px; font-weight:600; color:#7a1a2c; text-decoration:none; border-radius:8px;">Android (Google Play)</a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:0 32px 12px 32px;">
                 <table role="presentation" cellpadding="0" cellspacing="0">
                   <tr>
                     <td align="center" style="border:1px solid #7a1a2c; border-radius:8px;">
@@ -164,7 +179,7 @@ function buildInviteHtml(p: {
             <tr>
               <td style="padding:4px 32px 0 32px;">
                 <p style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:11.5px; line-height:1.6; color:#a59a94;">
-                  Importante: scarica l'app Enopera dall'<strong style="color:#6b5a5c;">App Store</strong> sul tuo iPhone. Se il pulsante della password non funziona, copia questo indirizzo nel browser:<br />
+                  Importante: scarica l'app Enopera da <strong style="color:#6b5a5c;">Google Play</strong> (Android) o dall'<strong style="color:#6b5a5c;">App Store</strong> (iPhone). Se il pulsante della password non funziona, copia questo indirizzo nel browser:<br />
                   <a href="${p.actionLink}" target="_blank" style="color:#7a1a2c; word-break:break-all;">${p.actionLink}</a>
                 </p>
               </td>
